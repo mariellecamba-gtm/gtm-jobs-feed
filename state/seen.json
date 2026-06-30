@@ -1,6 +1,5 @@
 {
-  "updatedAt": "",
-  "seededFrom": "legacy Google Sheet",
+  "updatedAt": "28447733922",
   "jobIds": [
     "4253834974",
     "4351362704",
@@ -122,6 +121,7 @@
     "4429591926",
     "4429969614",
     "4430236315",
+    "4430287822",
     "4430413395",
     "4430472645",
     "4430708591",
@@ -132,10 +132,13 @@
     "4432110353",
     "4432212483",
     "4432403679",
+    "4432642652",
     "4432870097",
     "4432940097",
     "4433085752",
-    "4433617553"
+    "4433617553",
+    "4433696901",
+    "4434959234"
   ],
   "companies": [
     "https://www.linkedin.com/company/4mindsai",
@@ -164,6 +167,7 @@
     "https://www.linkedin.com/company/cursorai",
     "https://www.linkedin.com/company/datasnipper",
     "https://www.linkedin.com/company/dealmachine",
+    "https://www.linkedin.com/company/dialedin-recruiting",
     "https://www.linkedin.com/company/elfsquad",
     "https://www.linkedin.com/company/eliseai",
     "https://www.linkedin.com/company/equinix",
@@ -189,6 +193,7 @@
     "https://www.linkedin.com/company/hungerrush",
     "https://www.linkedin.com/company/huzzle-com",
     "https://www.linkedin.com/company/inrule-technology",
+    "https://www.linkedin.com/company/insight-global",
     "https://www.linkedin.com/company/inspyrsolutions",
     "https://www.linkedin.com/company/instaffo-gmbh",
     "https://www.linkedin.com/company/intradiem",
@@ -229,6 +234,7 @@
     "https://www.linkedin.com/company/proservicehawaii",
     "https://www.linkedin.com/company/quadsci-ai",
     "https://www.linkedin.com/company/re-build-manufacturing",
+    "https://www.linkedin.com/company/reallysolved",
     "https://www.linkedin.com/company/remotepass",
     "https://www.linkedin.com/company/revpilots",
     "https://www.linkedin.com/company/rippling",
@@ -269,6 +275,7 @@
     "https://www.linkedin.com/company/voyadoab",
     "https://www.linkedin.com/company/wearewealth",
     "https://www.linkedin.com/company/webflow-inc-",
+    "https://www.linkedin.com/company/whybrilliantcom",
     "https://www.linkedin.com/company/yourprime-recruitment",
     "https://www.linkedin.com/company/zywa"
   ]
