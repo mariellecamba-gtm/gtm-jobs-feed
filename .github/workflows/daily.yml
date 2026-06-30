@@ -1,0 +1,53 @@
+name: GTM Jobs Feed
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # daily 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (no issues, no Aimfox, no state commit)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: gtm-jobs-feed
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # commit state/seen.json back
+  issues: write     # open one issue per job post
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run feed
+        env:
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
+          BLITZ_API_KEY: ${{ secrets.BLITZ_API_KEY }}
+          AIMFOX_API_KEY: ${{ secrets.AIMFOX_API_KEY }}
+          AIMFOX_CAMPAIGN_ID: ${{ secrets.AIMFOX_CAMPAIGN_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+          RUN_TIMESTAMP: ${{ github.run_id }}
+        run: node scripts/run.mjs
+
+      - name: Commit updated dedupe state
+        if: ${{ !inputs.dry_run }}
+        run: |
+          if [[ -n "$(git status --porcelain state/seen.json)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add state/seen.json
+            git commit -m "chore: update dedupe state [skip ci]"
+            git push
+          else
+            echo "no state change"
+          fi
