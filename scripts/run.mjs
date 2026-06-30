@@ -1,6 +1,6 @@
 // GTM Jobs Feed — GitHub-native runtime.
 // Finds GTM Engineer / Go-To-Market Engineer roles (US, EU, AU, NZ), opens ONE GitHub issue
-// per new job post with its decision-makers, and pushes those decision-makers to an Aimfox campaign.
+// per new job post with its points of contact, and pushes those points of contact to an Aimfox campaign.
 // Runs on GitHub Actions (see .github/workflows/daily.yml). Node 20+, zero dependencies.
 //
 // Dedupe state lives in ../state/seen.json (committed back by the workflow) — one entry per job id
@@ -21,11 +21,14 @@ const TITLE_ALLOW = /(gtm\s*engineer|go[-\s]*to[-\s]*market\s*engineer)/i;
 
 const BLITZ_ENRICH = "https://api.blitz-api.ai/v2/enrichment/company";
 const BLITZ_WATERFALL = "https://api.blitz-api.ai/v2/search/waterfall-icp-keyword";
-const DM_EXCLUDE = ["assistant", "intern", "executive business partner", "account executive", "sdr", "bdr",
-  "sales development", "business development representative", "customer success", "recruiter", "talent", "coordinator", "student", "support"];
+// Note: bare "sdr"/"bdr" are intentionally NOT excluded — they'd substring-match the wanted
+// "SDR Manager"/"BDR Manager" titles. The rep-level phrases below still filter individual reps.
+const DM_EXCLUDE = ["assistant", "intern", "executive business partner", "account executive",
+  "sales development representative", "business development representative", "customer success", "recruiter", "talent", "coordinator", "student", "support"];
 const dmTier = (titles) => ({ include_title: titles, exclude_title: DM_EXCLUDE, location: ["WORLD"], include_headline_search: false });
 const T_CEO = dmTier(["CEO", "Chief Executive Officer", "Founder", "Co-Founder", "Owner", "President", "Managing Director"]);
-const T_REV = dmTier(["CRO", "Chief Revenue Officer", "VP Sales", "VP of Sales", "Head of Sales", "Head of Revenue", "Chief Commercial Officer", "COO"]);
+const T_REV = dmTier(["CRO", "Chief Revenue Officer", "VP Sales", "VP of Sales", "Head of Sales", "Head of Revenue", "Chief Commercial Officer", "COO",
+  "Director Sales", "Director of Sales", "Director Business Development", "Director of Business Development", "Head of Business Development", "BDR Manager", "SDR Manager"]);
 const T_GROWTH = dmTier(["Head of Growth", "VP Growth", "Chief Growth Officer", "Head of GTM", "GTM Lead", "Go-to-Market", "CMO", "Chief Marketing Officer", "VP Marketing", "Head of Marketing", "Head of Demand Generation"]);
 const LARGE_SIZES = new Set(["201-500", "501-1000", "1001-5000", "5001-10000", "10001+"]);
 const SMALL_SIZES = new Set(["1-10", "11-50", "51-200"]);
@@ -169,7 +172,7 @@ function issueBody(it) {
   if (it.jobUrl) lines.push(`**Job post:** ${it.jobUrl}`);
   lines.push(`**Company size:** ${it.large ? "201+ employees" : "≤200 employees"}`);
   lines.push("");
-  lines.push(`### Decision-makers (${it.dms.length})`);
+  lines.push(`### Points of contact (${it.dms.length})`);
   if (it.dms.length) {
     for (const d of it.dms) lines.push(`- [${d.name}](${d.profile_url})${d.title ? ` — ${d.title}` : ""}`);
     lines.push("");
@@ -177,7 +180,7 @@ function issueBody(it) {
       ? `_Queued to Aimfox campaign for LinkedIn connection requests._`
       : `_Aimfox push not configured — work these manually._`);
   } else {
-    lines.push("_No decision-makers found by the waterfall search._");
+    lines.push("_No points of contact found by the waterfall search._");
   }
   lines.push("");
   lines.push(`<!-- gtm-jobs-feed job_id=${it.jobId} -->`);

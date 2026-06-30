@@ -1,8 +1,8 @@
 # GTM Jobs Feed
 
 Daily automated feed of **GTM Engineer / Go-To-Market Engineer** roles (US, EU, Australia, New Zealand).
-Each new job post becomes a **GitHub issue** in this repo with the company's decision-makers attached,
-and those decision-makers are pushed to an Aimfox campaign for LinkedIn connection requests.
+Each new job post becomes a **GitHub issue** in this repo with the company's points of contact attached,
+and those points of contact are pushed to an Aimfox campaign for LinkedIn connection requests.
 
 Runs entirely on **GitHub Actions** — no servers, no Google Sheet. The code, the schedule, and the
 output (issues) all live here.
@@ -16,12 +16,12 @@ Every day at **06:00 UTC** ([`.github/workflows/daily.yml`](.github/workflows/da
 2. Keeps only real GTM / Go-To-Market Engineer titles posted in the last 21 days.
 3. Drops anything already filed — dedupes by **job id** and by **company** (one issue per company, ever)
    using [`state/seen.json`](state/seen.json), which the workflow commits back after each run.
-4. For each new company, finds up to **3 decision-makers** via Blitz **Waterfall ICP**
+4. For each new company, finds up to **3 points of contact** via Blitz **Waterfall ICP**
    (size-aware: ≤200 employees include CEO/Founder + Revenue + Growth; 201+ skip the CEO, focus
    Growth/GTM + Revenue).
-5. **Opens a GitHub issue** for the job post with the decision-makers listed (labels: `gtm-job`,
+5. **Opens a GitHub issue** for the job post with the points of contact listed (labels: `gtm-job`,
    `region:*`, `size:*`).
-6. **Pushes those decision-makers to Aimfox** (campaign `GTM Engineer Hiring — Decision Makers`),
+6. **Pushes those points of contact to Aimfox** (campaign `GTM Engineer Hiring — Decision Makers`),
    which sends LinkedIn connection requests from the `mariellecamba` account.
 
 A safety cap (`MAX_ISSUES`, default 40) limits how many issues a single run can open.
