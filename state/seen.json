@@ -1,5 +1,5 @@
 {
-  "updatedAt": "28509276149",
+  "updatedAt": "28579329234",
   "jobIds": [
     "4253834974",
     "4351362704",
@@ -97,6 +97,7 @@
     "4426399044",
     "4426504137",
     "4426512588",
+    "4426584406",
     "4426879345",
     "4427079228",
     "4427085765",
@@ -135,6 +136,7 @@
     "4432212483",
     "4432403679",
     "4432642652",
+    "4432701833",
     "4432870097",
     "4432940097",
     "4433084731",
@@ -143,9 +145,13 @@
     "4433543351",
     "4433617553",
     "4433696901",
-    "4434959234"
+    "4434152275",
+    "4434633298",
+    "4434959234",
+    "4436305110"
   ],
   "companies": [
+    "https://www.linkedin.com/company/2xmarketing",
     "https://www.linkedin.com/company/4mindsai",
     "https://www.linkedin.com/company/5dai",
     "https://www.linkedin.com/company/airtable",
@@ -162,6 +168,7 @@
     "https://www.linkedin.com/company/built-technologies-inc-",
     "https://www.linkedin.com/company/butterflymx",
     "https://www.linkedin.com/company/carbmee",
+    "https://www.linkedin.com/company/carrot-fertility",
     "https://www.linkedin.com/company/causaly",
     "https://www.linkedin.com/company/centellic",
     "https://www.linkedin.com/company/chatgpt-jobs-all",
@@ -257,6 +264,7 @@
     "https://www.linkedin.com/company/shippypro",
     "https://www.linkedin.com/company/sibill",
     "https://www.linkedin.com/company/skello",
+    "https://www.linkedin.com/company/skydio",
     "https://www.linkedin.com/company/snowflake-computing",
     "https://www.linkedin.com/company/speechifyinc",
     "https://www.linkedin.com/company/stationf",
@@ -282,10 +290,12 @@
     "https://www.linkedin.com/company/upguard",
     "https://www.linkedin.com/company/usepatch",
     "https://www.linkedin.com/company/vesselfront",
+    "https://www.linkedin.com/company/vidalytics",
     "https://www.linkedin.com/company/voyadoab",
     "https://www.linkedin.com/company/wearewealth",
     "https://www.linkedin.com/company/webflow-inc-",
     "https://www.linkedin.com/company/whybrilliantcom",
+    "https://www.linkedin.com/company/withclutch",
     "https://www.linkedin.com/company/yourprime-recruitment",
     "https://www.linkedin.com/company/zywa"
   ]
