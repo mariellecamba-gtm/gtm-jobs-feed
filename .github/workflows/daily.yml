@@ -2,7 +2,8 @@ name: GTM Jobs Feed
 
 on:
   schedule:
-    - cron: "0 6 * * *"   # daily 06:00 UTC
+    - cron: "0 6 * * *"    # daily 06:00 UTC (primary)
+    - cron: "0 14 * * *"   # daily 14:00 UTC (backup — catches up if the 06:00 run couldn't get a runner)
   workflow_dispatch:
     inputs:
       dry_run:
@@ -21,6 +22,7 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
