@@ -1,14 +1,14 @@
 // GTM Jobs Feed — GitHub-native runtime.
 // Finds GTM Engineer / Go-To-Market Engineer roles (US, EU, AU, NZ), opens ONE GitHub issue
 // per new job post with its points of contact, and pushes those points of contact to an Aimfox campaign.
-// Runs on GitHub Actions (see .github/workflows/daily.yml). Node 20+, zero dependencies.
+// Runs weekly on GitHub Actions (see .github/workflows/daily.yml). Node 20+, zero dependencies.
 //
 // Dedupe state lives in ../state/seen.json (committed back by the workflow) — one entry per job id
 // AND one per company, so a company is never filed twice. This replaces the old Supabase table.
 //
 // Env: RAPIDAPI_KEY, BLITZ_API_KEY (required); AIMFOX_API_KEY, AIMFOX_CAMPAIGN_ID (optional — push
 // is skipped if absent); GITHUB_TOKEN + GITHUB_REPOSITORY (auto-provided by Actions).
-// Optional: RECENT_DAYS (default 21), MAX_ISSUES (safety cap, default 40), DRY_RUN=1 (no writes).
+// Optional: RECENT_DAYS (default 7), MAX_ISSUES (safety cap, default 40), DRY_RUN=1 (no writes).
 
 import { readFile, writeFile } from "node:fs/promises";
 
@@ -33,7 +33,7 @@ const T_GROWTH = dmTier(["Head of Growth", "VP Growth", "Chief Growth Officer", 
 const LARGE_SIZES = new Set(["201-500", "501-1000", "1001-5000", "5001-10000", "10001+"]);
 const SMALL_SIZES = new Set(["1-10", "11-50", "51-200"]);
 
-const RECENT_DAYS = Number(process.env.RECENT_DAYS || 21);
+const RECENT_DAYS = Number(process.env.RECENT_DAYS || 7);
 const MAX_ISSUES = Number(process.env.MAX_ISSUES || 40);
 const DRY_RUN = process.env.DRY_RUN === "1";
 const TIMEOUT_MS = 25000, RETRIES = 4, SEARCH_CONCURRENCY = 4, DM_CONCURRENCY = 3;
