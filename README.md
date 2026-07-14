@@ -1,6 +1,6 @@
 # GTM Jobs Feed
 
-Daily automated feed of **GTM Engineer / Go-To-Market Engineer** roles (US, EU, Australia, New Zealand).
+Weekly automated feed of **GTM Engineer / Go-To-Market Engineer** roles (US, EU, Australia, New Zealand).
 Each new job post becomes a **GitHub issue** in this repo with the company's points of contact attached,
 and those points of contact are pushed to an Aimfox campaign for LinkedIn connection requests.
 
@@ -9,11 +9,11 @@ output (issues) all live here.
 
 ## How it works
 
-Every day at **06:00 UTC** ([`.github/workflows/daily.yml`](.github/workflows/daily.yml)) GitHub Actions runs
+Every **Monday at 06:00 UTC** ([`.github/workflows/daily.yml`](.github/workflows/daily.yml)) GitHub Actions runs
 [`scripts/run.mjs`](scripts/run.mjs), which:
 
 1. Searches the `professional-network-data` RapidAPI for the 2 titles × 4 regions.
-2. Keeps only real GTM / Go-To-Market Engineer titles posted in the last 21 days.
+2. Keeps only real GTM / Go-To-Market Engineer titles posted in the last 7 days.
 3. Drops anything already filed — dedupes by **job id** and by **company** (one issue per company, ever)
    using [`state/seen.json`](state/seen.json), which the workflow commits back after each run.
 4. For each new company, finds up to **3 points of contact** via Blitz **Waterfall ICP**
