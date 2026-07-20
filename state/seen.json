@@ -1,5 +1,5 @@
 {
-  "updatedAt": "29317400048",
+  "updatedAt": "29729424116",
   "jobIds": [
     "4253834974",
     "4351362704",
@@ -193,8 +193,12 @@
     "4439393152",
     "4439484711",
     "4439511301",
+    "4439878253",
     "4440051950",
-    "4440060297"
+    "4440060297",
+    "4440557680",
+    "4441429931",
+    "4441720127"
   ],
   "companies": [
     "https://www.linkedin.com/company/2xmarketing",
@@ -212,7 +216,9 @@
     "https://www.linkedin.com/company/athlos-sports-travel",
     "https://www.linkedin.com/company/atlassian",
     "https://www.linkedin.com/company/attentivehq",
+    "https://www.linkedin.com/company/bacx",
     "https://www.linkedin.com/company/baseten",
+    "https://www.linkedin.com/company/bluebird-saas-recruitment",
     "https://www.linkedin.com/company/boulevard",
     "https://www.linkedin.com/company/branch-app",
     "https://www.linkedin.com/company/bridgemaker-gmbh",
@@ -335,6 +341,7 @@
     "https://www.linkedin.com/company/safetyculturehq",
     "https://www.linkedin.com/company/sales-automation-ai",
     "https://www.linkedin.com/company/salesdose",
+    "https://www.linkedin.com/company/sanity-io",
     "https://www.linkedin.com/company/sarnova",
     "https://www.linkedin.com/company/scribehow",
     "https://www.linkedin.com/company/sellent",
@@ -389,6 +396,7 @@
     "https://www.linkedin.com/company/withclutch",
     "https://www.linkedin.com/company/xecurrencyauthority",
     "https://www.linkedin.com/company/yourprime-recruitment",
+    "https://www.linkedin.com/company/yunopay",
     "https://www.linkedin.com/company/zywa"
   ]
 }
