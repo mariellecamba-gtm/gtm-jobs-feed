@@ -1,5 +1,5 @@
 {
-  "updatedAt": "30802324648",
+  "updatedAt": "30832233557",
   "jobIds": [
     "4253834974",
     "4351362704",
@@ -210,15 +210,21 @@
     "4443521399",
     "4443576066",
     "4443606771",
+    "4443625715",
     "4444016884",
     "4444218601",
     "4444394972",
+    "4444505606",
     "4444879919",
     "4445221796",
     "4445495911",
+    "4445540070",
     "4446114295",
     "4446336537",
-    "4447679880"
+    "4447679880",
+    "4447732103",
+    "4448109563",
+    "4448165183"
   ],
   "companies": [
     "https://www.linkedin.com/company/2xmarketing",
@@ -254,6 +260,7 @@
     "https://www.linkedin.com/company/chatgpt-jobs-all",
     "https://www.linkedin.com/company/clickhouseinc",
     "https://www.linkedin.com/company/cloudflare",
+    "https://www.linkedin.com/company/collective",
     "https://www.linkedin.com/company/confidential-company-page12",
     "https://www.linkedin.com/company/consistent-performance-mentoring",
     "https://www.linkedin.com/company/coolset",
@@ -302,12 +309,14 @@
     "https://www.linkedin.com/company/heyacto",
     "https://www.linkedin.com/company/hhaexchange",
     "https://www.linkedin.com/company/hightouchio",
+    "https://www.linkedin.com/company/hirexe",
     "https://www.linkedin.com/company/hivemq-gmbh",
     "https://www.linkedin.com/company/hologram-io",
     "https://www.linkedin.com/company/hopskipdrive",
     "https://www.linkedin.com/company/hungerrush",
     "https://www.linkedin.com/company/huzzle-com",
     "https://www.linkedin.com/company/initialized-capital",
+    "https://www.linkedin.com/company/innovint",
     "https://www.linkedin.com/company/inrule-technology",
     "https://www.linkedin.com/company/insight-global",
     "https://www.linkedin.com/company/inspyrsolutions",
@@ -321,6 +330,7 @@
     "https://www.linkedin.com/company/joinpogo",
     "https://www.linkedin.com/company/juniper-square",
     "https://www.linkedin.com/company/justworks-",
+    "https://www.linkedin.com/company/kadencetalent",
     "https://www.linkedin.com/company/kana-intelligence",
     "https://www.linkedin.com/company/kya-agents",
     "https://www.linkedin.com/company/ladders",
@@ -351,6 +361,7 @@
     "https://www.linkedin.com/company/opkey",
     "https://www.linkedin.com/company/oryn-group",
     "https://www.linkedin.com/company/osapiens",
+    "https://www.linkedin.com/company/outsiders-fund",
     "https://www.linkedin.com/company/paires-ai",
     "https://www.linkedin.com/company/papaya-global",
     "https://www.linkedin.com/company/pay-com-au",
@@ -437,6 +448,7 @@
     "https://www.linkedin.com/company/yellow-tech-ai",
     "https://www.linkedin.com/company/yourprime-recruitment",
     "https://www.linkedin.com/company/yunopay",
-    "https://www.linkedin.com/company/zywa"
+    "https://www.linkedin.com/company/zywa",
+    "rubiboo"
   ]
 }
