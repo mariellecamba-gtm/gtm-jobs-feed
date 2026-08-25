@@ -36,11 +36,42 @@ const SMALL_SIZES = new Set(["1-10", "11-50", "51-200"]);
 const RECENT_DAYS = Number(process.env.RECENT_DAYS || 7);
 const MAX_ISSUES = Number(process.env.MAX_ISSUES || 40);
 const DRY_RUN = process.env.DRY_RUN === "1";
-const TIMEOUT_MS = 25000, RETRIES = 4, SEARCH_CONCURRENCY = 4, DM_CONCURRENCY = 3;
+const TIMEOUT_MS = 25000, RETRIES = 4, SEARCH_CONCURRENCY = 2, DM_CONCURRENCY = 3;
+// RapidAPI rate limits apply to the key, not to a single request, so bursting 4 searches at once
+// used to trip a 429 on all of them at the same instant. Searches are now spaced apart and share
+// one cooldown (see the rate gate below) instead of each burning its retries against a saturated limit.
+const SEARCH_SPACING_MS = 500;
+const RATE_BACKOFF_MS = [5000, 10000, 20000, 30000];
 
 const SEEN_PATH = new URL("../state/seen.json", import.meta.url);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const tfetch = (url, init = {}, ms = TIMEOUT_MS) => fetch(url, { ...init, signal: AbortSignal.timeout(ms) });
+
+// ---- shared rate gate ----
+// A 429 means the whole key is throttled, so one search tripping it holds every other search back
+// for the same cooldown. Without this, concurrent searches each hit 429 and give up together.
+let gateUntil = 0;
+const openGate = (ms) => { gateUntil = Math.max(gateUntil, Date.now() + ms); };
+async function waitGate() {
+  for (let left = gateUntil - Date.now(); left > 0; left = gateUntil - Date.now()) await sleep(Math.min(left, 1000));
+}
+// Keeps request starts SEARCH_SPACING_MS apart so a burst never looks like a flood.
+let nextSlot = 0;
+async function pace() {
+  const now = Date.now();
+  const slot = Math.max(now, nextSlot);
+  nextSlot = slot + SEARCH_SPACING_MS;
+  if (slot > now) await sleep(slot - now);
+}
+// RapidAPI sends Retry-After on some 429s; honour it when it is sane, ignore it when it is not.
+function retryAfterMs(r) {
+  const h = r.headers.get("retry-after");
+  if (!h) return 0;
+  const secs = Number(h);
+  if (Number.isFinite(secs)) return Math.min(Math.max(secs, 0) * 1000, 60000);
+  const at = Date.parse(h);
+  return Number.isFinite(at) ? Math.min(Math.max(at - Date.now(), 0), 60000) : 0;
+}
 
 async function mapPool(items, n, fn) {
   const out = new Array(items.length);
@@ -146,13 +177,31 @@ async function pushToAimfox(aimfoxKey, campaignId, profiles) {
   return { added, failed, note: `${added} added, ${failed} skipped` + (reasons.size ? ` (${[...reasons].slice(0, 4).join(",")})` : "") };
 }
 
+// First 429 message we see, surfaced in the summary — it is the only way to tell a passing
+// rate limit apart from an exhausted plan quota without opening the RapidAPI dashboard.
+let rateLimitNote = "";
+
 async function searchJobs(key, kw, geo) {
   let last = "empty";
+  let rateHits = 0;
   for (let attempt = 0; attempt < RETRIES; attempt++) {
+    await waitGate();
+    await pace();
     try {
       const qs = new URLSearchParams({ keywords: kw, locationId: geo });
       const r = await tfetch(`${JOB_URL}?${qs}`, { headers: { "X-RapidAPI-Key": key, "X-RapidAPI-Host": JOB_HOST } });
-      if (r.status === 429) return { jobs: [], status: "http429" };
+      if (r.status === 429) {
+        const msg = (await r.text().catch(() => "")).slice(0, 200);
+        if (!rateLimitNote) rateLimitNote = msg || "(no body)";
+        // A plan quota does not refill on a timescale this run can wait out — stop immediately
+        // rather than spending the job's remaining minutes on retries that cannot succeed.
+        if (/quota/i.test(msg)) return { jobs: [], status: "quota" };
+        const wait = retryAfterMs(r) || RATE_BACKOFF_MS[Math.min(rateHits, RATE_BACKOFF_MS.length - 1)];
+        rateHits++;
+        last = "http429";
+        openGate(wait);
+        continue;
+      }
       if (!r.ok) { last = `http${r.status}`; await sleep(900 * (attempt + 1)); continue; }
       const j = await r.json();
       if (Array.isArray(j?.data) && j.data.length) return { jobs: j.data, status: "ok" };
@@ -288,12 +337,22 @@ async function main() {
   const summary = [
     `fetched=${fetched} matched=${matched} new=${items.length} issues=${issuesCreated}` + (capped ? ` capped=${capped}` : ""),
     `searches ok=${okSearches}/${pairs.length}` + (Object.keys(fails).length ? ` fails=${JSON.stringify(fails)}` : ""),
+    rateLimitNote ? `rapidapi 429 said: ${rateLimitNote}` : "",
     dmDiag,
     issueErrors.length ? `issue errors: ${issueErrors.slice(0, 5).join(" | ")}` : "",
   ].filter(Boolean).join("\n");
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY && !DRY_RUN) {
     await writeFile(process.env.GITHUB_STEP_SUMMARY, `### GTM Jobs Feed\n\n\`\`\`\n${summary}\n\`\`\`\n`, { flag: "a" });
+  }
+
+  // A run that fetched nothing is a failed run, not a quiet one. Exiting 0 here is what let three
+  // separate weeks of total rate-limiting show up as a green check with no jobs filed.
+  if (pairs.length && okSearches === 0) {
+    console.error(`::error::every search failed (${JSON.stringify(fails)}) — no jobs were fetched`);
+    process.exitCode = 1;
+  } else if (okSearches < pairs.length) {
+    console.warn(`::warning::${pairs.length - okSearches}/${pairs.length} searches failed — this run saw only part of the feed`);
   }
 }
 
