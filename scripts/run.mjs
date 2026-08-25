@@ -181,6 +181,20 @@ async function pushToAimfox(aimfoxKey, campaignId, profiles) {
 // an exhausted plan quota both with 429 but different text, and it can return both in one run, so
 // keeping only the first message hides which one actually stopped the feed.
 const rateLimitNotes = new Set();
+// RapidAPI reports the plan window on every response. On a quota 429 it is the only thing that
+// says when the feed can work again, so it goes in the summary instead of needing the dashboard.
+let quotaState = "";
+function readQuota(r) {
+  const limit = r.headers.get("x-ratelimit-requests-limit");
+  const left = r.headers.get("x-ratelimit-requests-remaining");
+  const reset = r.headers.get("x-ratelimit-requests-reset");
+  if (!limit && !left && !reset) return "";
+  const secs = Number(reset);
+  const when = Number.isFinite(secs) && secs > 0
+    ? `${Math.round(secs / 86400)}d (${new Date(Date.now() + secs * 1000).toISOString().slice(0, 16).replace("T", " ")}Z)`
+    : (reset ?? "?");
+  return `${left ?? "?"}/${limit ?? "?"} requests left, resets in ${when}`;
+}
 
 async function searchJobs(key, kw, geo) {
   let last = "empty";
@@ -194,6 +208,7 @@ async function searchJobs(key, kw, geo) {
       if (r.status === 429) {
         const msg = (await r.text().catch(() => "")).slice(0, 200);
         if (rateLimitNotes.size < 4) rateLimitNotes.add(msg || "(no body)");
+        quotaState = readQuota(r) || quotaState;
         // A plan quota does not refill on a timescale this run can wait out — stop immediately
         // rather than spending the job's remaining minutes on retries that cannot succeed.
         if (/quota/i.test(msg)) return { jobs: [], status: "quota" };
@@ -339,6 +354,7 @@ async function main() {
     `fetched=${fetched} matched=${matched} new=${items.length} issues=${issuesCreated}` + (capped ? ` capped=${capped}` : ""),
     `searches ok=${okSearches}/${pairs.length}` + (Object.keys(fails).length ? ` fails=${JSON.stringify(fails)}` : ""),
     rateLimitNotes.size ? `rapidapi 429 said: ${[...rateLimitNotes].join(" | ")}` : "",
+    quotaState ? `rapidapi plan: ${quotaState}` : "",
     dmDiag,
     issueErrors.length ? `issue errors: ${issueErrors.slice(0, 5).join(" | ")}` : "",
   ].filter(Boolean).join("\n");
