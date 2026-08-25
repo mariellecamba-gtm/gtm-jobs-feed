@@ -3,7 +3,8 @@ name: GTM Jobs Feed
 on:
   schedule:
     - cron: "0 6 * * 1"    # Mondays 06:00 UTC (primary)
-    - cron: "0 14 * * 1"   # Mondays 14:00 UTC (backup — catches up if the 06:00 run couldn't get a runner)
+    - cron: "0 14 * * 1"   # Mondays 14:00 UTC (backup — catches up if the 06:00 run couldn't get a runner
+                           #  or was rate-limited; stands down for 0 API requests if 06:00 already fetched)
   workflow_dispatch:
     inputs:
       dry_run:
