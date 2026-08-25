@@ -177,9 +177,10 @@ async function pushToAimfox(aimfoxKey, campaignId, profiles) {
   return { added, failed, note: `${added} added, ${failed} skipped` + (reasons.size ? ` (${[...reasons].slice(0, 4).join(",")})` : "") };
 }
 
-// First 429 message we see, surfaced in the summary — it is the only way to tell a passing
-// rate limit apart from an exhausted plan quota without opening the RapidAPI dashboard.
-let rateLimitNote = "";
+// Distinct 429 bodies seen this run, surfaced in the summary. RapidAPI answers a burst limit and
+// an exhausted plan quota both with 429 but different text, and it can return both in one run, so
+// keeping only the first message hides which one actually stopped the feed.
+const rateLimitNotes = new Set();
 
 async function searchJobs(key, kw, geo) {
   let last = "empty";
@@ -192,7 +193,7 @@ async function searchJobs(key, kw, geo) {
       const r = await tfetch(`${JOB_URL}?${qs}`, { headers: { "X-RapidAPI-Key": key, "X-RapidAPI-Host": JOB_HOST } });
       if (r.status === 429) {
         const msg = (await r.text().catch(() => "")).slice(0, 200);
-        if (!rateLimitNote) rateLimitNote = msg || "(no body)";
+        if (rateLimitNotes.size < 4) rateLimitNotes.add(msg || "(no body)");
         // A plan quota does not refill on a timescale this run can wait out — stop immediately
         // rather than spending the job's remaining minutes on retries that cannot succeed.
         if (/quota/i.test(msg)) return { jobs: [], status: "quota" };
@@ -337,7 +338,7 @@ async function main() {
   const summary = [
     `fetched=${fetched} matched=${matched} new=${items.length} issues=${issuesCreated}` + (capped ? ` capped=${capped}` : ""),
     `searches ok=${okSearches}/${pairs.length}` + (Object.keys(fails).length ? ` fails=${JSON.stringify(fails)}` : ""),
-    rateLimitNote ? `rapidapi 429 said: ${rateLimitNote}` : "",
+    rateLimitNotes.size ? `rapidapi 429 said: ${[...rateLimitNotes].join(" | ")}` : "",
     dmDiag,
     issueErrors.length ? `issue errors: ${issueErrors.slice(0, 5).join(" | ")}` : "",
   ].filter(Boolean).join("\n");
