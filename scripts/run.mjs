@@ -92,12 +92,13 @@ const companyKeyOf = (cu, name) => (cu || name || "").toLowerCase().trim();
 async function loadSeen() {
   try {
     const j = JSON.parse(await readFile(SEEN_PATH, "utf8"));
-    return { jobIds: new Set(j.jobIds || []), companies: new Set((j.companies || []).map((c) => c.toLowerCase())) };
-  } catch { return { jobIds: new Set(), companies: new Set() }; }
+    return { jobIds: new Set(j.jobIds || []), companies: new Set((j.companies || []).map((c) => c.toLowerCase())), lastOkRun: j.lastOkRun || "" };
+  } catch { return { jobIds: new Set(), companies: new Set(), lastOkRun: "" }; }
 }
 async function saveSeen(seen) {
   const body = JSON.stringify({
     updatedAt: process.env.RUN_TIMESTAMP || "",
+    lastOkRun: seen.lastOkRun || "",
     jobIds: [...seen.jobIds].sort(),
     companies: [...seen.companies].sort(),
   }, null, 2);
@@ -184,6 +185,9 @@ const rateLimitNotes = new Set();
 // RapidAPI reports the plan window on every response. On a quota 429 it is the only thing that
 // says when the feed can work again, so it goes in the summary instead of needing the dashboard.
 let quotaState = "";
+// Every RapidAPI call goes through searchJobs, so this is the run's exact spend against the
+// monthly plan — the number that decides whether the schedule fits in the quota.
+let apiRequests = 0;
 function readQuota(r) {
   const limit = r.headers.get("x-ratelimit-requests-limit");
   const left = r.headers.get("x-ratelimit-requests-remaining");
@@ -204,6 +208,7 @@ async function searchJobs(key, kw, geo) {
     await pace();
     try {
       const qs = new URLSearchParams({ keywords: kw, locationId: geo });
+      apiRequests++;
       const r = await tfetch(`${JOB_URL}?${qs}`, { headers: { "X-RapidAPI-Key": key, "X-RapidAPI-Host": JOB_HOST } });
       if (r.status === 429) {
         const msg = (await r.text().catch(() => "")).slice(0, 200);
@@ -221,7 +226,11 @@ async function searchJobs(key, kw, geo) {
       if (!r.ok) { last = `http${r.status}`; await sleep(900 * (attempt + 1)); continue; }
       const j = await r.json();
       if (Array.isArray(j?.data) && j.data.length) return { jobs: j.data, status: "ok" };
-      last = j?.success === false ? "transient" : "empty";
+      // A well-formed empty result is the API's answer, not a glitch. Retrying it three more times
+      // spends three more requests to be told the same thing — on a 75/month plan a quiet region
+      // like NZ was burning 4 requests a run to report the zero jobs it reported on the first.
+      if (Array.isArray(j?.data)) return { jobs: [], status: "empty" };
+      last = j?.success === false ? "transient" : "malformed";
     } catch { last = "timeout"; }
     await sleep(900 * (attempt + 1));
   }
@@ -261,6 +270,17 @@ async function main() {
   };
   if (!secrets.RAPIDAPI_KEY) throw new Error("RAPIDAPI_KEY missing");
   const seen = await loadSeen();
+  const today = new Date().toISOString().slice(0, 10);
+
+  // The 14:00 Monday schedule exists only to cover a 06:00 run that never got a runner. When the
+  // primary already fetched today, a second full search grid re-learns the same thing for another
+  // 8 requests — on a 75/month plan that duplicate is the difference between fitting and not.
+  // Manual dispatches are never skipped, so a forced re-run still works.
+  if (process.env.GITHUB_EVENT_NAME === "schedule" && seen.lastOkRun === today) {
+    console.log(`skipped: a scheduled run already fetched successfully today (${today}) — 0 API requests made`);
+    return;
+  }
+
   const cutoff = Date.now() - RECENT_DAYS * 86400_000;
 
   // 1) search
@@ -347,11 +367,14 @@ async function main() {
     dmDiag = `aimfox: not configured (${dmProfiles.length} DMs in issues only)`;
   }
 
-  // 6) persist dedupe state
+  // 6) persist dedupe state — recording today only when searches actually returned, so a
+  // rate-limited primary still leaves the backup run free to try again.
+  if (okSearches > 0) seen.lastOkRun = today;
   await saveSeen(seen);
 
   const summary = [
     `fetched=${fetched} matched=${matched} new=${items.length} issues=${issuesCreated}` + (capped ? ` capped=${capped}` : ""),
+    `requests=${apiRequests} (rapidapi)`,
     `searches ok=${okSearches}/${pairs.length}` + (Object.keys(fails).length ? ` fails=${JSON.stringify(fails)}` : ""),
     rateLimitNotes.size ? `rapidapi 429 said: ${[...rateLimitNotes].join(" | ")}` : "",
     quotaState ? `rapidapi plan: ${quotaState}` : "",
