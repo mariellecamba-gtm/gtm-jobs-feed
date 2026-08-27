@@ -1,6 +1,7 @@
 // GTM Jobs Feed — GitHub-native runtime.
-// Finds GTM Engineer / Go-To-Market Engineer roles (US, EU, AU, NZ), opens ONE GitHub issue
-// per new job post with its points of contact, and pushes those points of contact to an Aimfox campaign.
+// Finds GTM Engineer / Go-To-Market Engineer / GTM Operations / Growth Engineer / Growth Lead roles
+// (US, EU, AU, NZ) at companies of ANY size, opens ONE GitHub issue per new job post with its points
+// of contact, and pushes those points of contact to an Aimfox campaign.
 // Runs weekly on GitHub Actions (see .github/workflows/daily.yml). Node 20+, zero dependencies.
 //
 // Dedupe state lives in ../state/seen.json (committed back by the workflow) — one entry per job id
@@ -8,16 +9,31 @@
 //
 // Env: RAPIDAPI_KEY, BLITZ_API_KEY (required); AIMFOX_API_KEY, AIMFOX_CAMPAIGN_ID (optional — push
 // is skipped if absent); GITHUB_TOKEN + GITHUB_REPOSITORY (auto-provided by Actions).
-// Optional: RECENT_DAYS (default 7), MAX_ISSUES (safety cap, default 40), DRY_RUN=1 (no writes).
+// Optional: RECENT_DAYS (default 7), MAX_ISSUES (safety cap, default 40), DRY_RUN=1 (no writes),
+// MAX_REQUESTS (RapidAPI requests one run may spend, default 15 — see the budget note below).
 
 import { readFile, writeFile } from "node:fs/promises";
 
 const JOB_HOST = "professional-network-data.p.rapidapi.com";
 const JOB_URL = `https://${JOB_HOST}/search-jobs-v2`;
 
-const KEYWORDS = ["GTM Engineer", "Go To Market Engineer"];
+const KEYWORDS = ["GTM Engineer", "Go To Market Engineer", "GTM Operations", "Growth Engineer", "Growth Lead"];
 const LOCATIONS = { "US": "103644278", "EU": "91000000", "Australia": "101452733", "New Zealand": "105490917" };
-const TITLE_ALLOW = /(gtm\s*engineer|go[-\s]*to[-\s]*market\s*engineer)/i;
+// US and EU carry ~97% of the volume ever filed, so they are searched for every keyword every run;
+// AU/NZ share whatever request budget is left and rotate week to week (see buildPairs).
+const CORE_REGIONS = ["US", "EU"];
+const TAIL_REGIONS = ["Australia", "New Zealand"];
+
+// The four title families this feed tracks. A posting has to match one of them on the TITLE — the
+// keyword search alone is relevance-ranked and happily returns "Growth Marketing Manager" for
+// "Growth Lead". The family is recorded on the issue so the list stays filterable by role type.
+const ROLE_FAMILIES = [
+  { label: "GTM Engineer", re: /(gtm|go[-\s]*to[-\s]*market)[-\s]*(systems?[-\s]*|solutions?[-\s]*)?engineer/i },
+  { label: "GTM Operations", re: /(gtm|go[-\s]*to[-\s]*market)[-\s]*(ops\b|operations)/i },
+  { label: "Growth Engineer", re: /(growth[-\s]*(systems?[-\s]*|software[-\s]*|product[-\s]*)?engineer|\bengineer[,\s-]+growth\b)/i },
+  { label: "Growth Lead", re: /(growth[-\s]*(team[-\s]*)?lead\b|\blead[,\s-]+growth\b)/i },
+];
+const titleFamily = (t) => ROLE_FAMILIES.find((f) => f.re.test(t ?? ""))?.label ?? "";
 
 const BLITZ_ENRICH = "https://api.blitz-api.ai/v2/enrichment/company";
 const BLITZ_WATERFALL = "https://api.blitz-api.ai/v2/search/waterfall-icp-keyword";
@@ -30,11 +46,24 @@ const T_CEO = dmTier(["CEO", "Chief Executive Officer", "Founder", "Co-Founder",
 const T_REV = dmTier(["CRO", "Chief Revenue Officer", "VP Sales", "VP of Sales", "Head of Sales", "Head of Revenue", "Chief Commercial Officer", "COO",
   "Director Sales", "Director of Sales", "Director Business Development", "Director of Business Development", "Head of Business Development", "BDR Manager", "SDR Manager"]);
 const T_GROWTH = dmTier(["Head of Growth", "VP Growth", "Chief Growth Officer", "Head of GTM", "GTM Lead", "Go-to-Market", "CMO", "Chief Marketing Officer", "VP Marketing", "Head of Marketing", "Head of Demand Generation"]);
-const LARGE_SIZES = new Set(["201-500", "501-1000", "1001-5000", "5001-10000", "10001+"]);
+// At 1000+ employees the C-suite is unreachable and "Head of Growth" is often three people, so the
+// enterprise cascade goes after the Director/VP layer that actually owns GTM systems instead.
+const T_ENTERPRISE = dmTier(["Head of Growth", "VP Growth", "Director of Growth", "Head of GTM", "GTM Lead", "Director of Revenue Operations",
+  "Head of Revenue Operations", "VP Revenue Operations", "Director of Sales Operations", "Head of Sales Operations", "Director of Demand Generation"]);
+// Every band Blitz reports, smallest first — no size is excluded from the feed, the band only picks
+// which decision-maker cascade to run and what the issue says.
+const SIZE_BANDS = ["1-10", "11-50", "51-200", "201-500", "501-1000", "1001-5000", "5001-10000", "10001+"];
 const SMALL_SIZES = new Set(["1-10", "11-50", "51-200"]);
+const MID_SIZES = new Set(["201-500", "501-1000"]);
+const ENTERPRISE_SIZES = new Set(["1001-5000", "5001-10000", "10001+"]);
 
 const RECENT_DAYS = Number(process.env.RECENT_DAYS || 7);
 const MAX_ISSUES = Number(process.env.MAX_ISSUES || 40);
+// RapidAPI's plan is metered per request per month, not per run, so the grid (5 keywords x 4 regions
+// = 20 pairs, plus retries) can outrun a month's quota in three weeks and leave the feed dead until
+// it resets. This is the hard ceiling on what one run may spend; pairs past it are skipped and named
+// in the summary rather than silently dropped. Raise it if the plan gets bigger.
+const MAX_REQUESTS = Number(process.env.MAX_REQUESTS || 15);
 const DRY_RUN = process.env.DRY_RUN === "1";
 const TIMEOUT_MS = 25000, RETRIES = 4, SEARCH_CONCURRENCY = 2, DM_CONCURRENCY = 3;
 // RapidAPI rate limits apply to the key, not to a single request, so bursting 4 searches at once
@@ -131,19 +160,33 @@ async function createIssue({ title, body, labels }) {
 }
 
 // ---- decision-maker discovery ----
-async function companyIsLarge(blitzKey, companyUrl) {
+// Maps a headcount onto the same bands Blitz reports, so a company that only exposes
+// employees_on_linkedin still lands in a real band instead of "unknown".
+function bandFromHeadcount(n) {
+  if (!Number.isFinite(n)) return "";
+  return n <= 10 ? "1-10" : n <= 50 ? "11-50" : n <= 200 ? "51-200" : n <= 500 ? "201-500"
+    : n <= 1000 ? "501-1000" : n <= 5000 ? "1001-5000" : n <= 10000 ? "5001-10000" : "10001+";
+}
+// Size never decides whether a job is filed — every band is in scope as long as the title matches a
+// role family. It only decides which decision-maker cascade has a chance of finding a real contact.
+function sizeTier(band) {
+  if (ENTERPRISE_SIZES.has(band)) return "enterprise";
+  if (MID_SIZES.has(band)) return "mid";
+  return "small"; // small bands and unknown both get the founder-first cascade
+}
+async function companySize(blitzKey, companyUrl) {
   try {
     const r = await tfetch(BLITZ_ENRICH, { method: "POST", headers: { "x-api-key": blitzKey, "Content-Type": "application/json" }, body: JSON.stringify({ company_linkedin_url: companyUrl }) }, 30000);
     const d = await r.json();
     const c = d?.found ? (d.company ?? {}) : {};
-    if (c.size && LARGE_SIZES.has(c.size)) return true;
-    if (c.size && SMALL_SIZES.has(c.size)) return false;
-    if (typeof c.employees_on_linkedin === "number") return c.employees_on_linkedin > 200;
-  } catch { /* default small */ }
-  return false;
+    if (c.size && SIZE_BANDS.includes(c.size)) return c.size;
+    return bandFromHeadcount(c.employees_on_linkedin);
+  } catch { return ""; }
 }
-async function findDecisionMakers(blitzKey, companyUrl, large) {
-  const cascade = large ? [T_GROWTH, T_REV] : [T_CEO, T_REV, T_GROWTH];
+async function findDecisionMakers(blitzKey, companyUrl, tier) {
+  const cascade = tier === "enterprise" ? [T_ENTERPRISE, T_GROWTH, T_REV]
+    : tier === "mid" ? [T_GROWTH, T_REV]
+    : [T_CEO, T_REV, T_GROWTH];
   try {
     const r = await tfetch(BLITZ_WATERFALL, { method: "POST", headers: { "x-api-key": blitzKey, "Content-Type": "application/json" }, body: JSON.stringify({ company_linkedin_url: companyUrl, cascade, max_results: 3 }) }, 40000);
     const d = await r.json();
@@ -204,11 +247,14 @@ async function searchJobs(key, kw, geo) {
   let last = "empty";
   let rateHits = 0;
   for (let attempt = 0; attempt < RETRIES; attempt++) {
+    // Reserve the request before awaiting anything, or two concurrent searches both pass the
+    // check on the last unit of budget and the run overspends by SEARCH_CONCURRENCY.
+    if (apiRequests >= MAX_REQUESTS) return { jobs: [], status: attempt === 0 ? "budget" : last };
+    apiRequests++;
     await waitGate();
     await pace();
     try {
       const qs = new URLSearchParams({ keywords: kw, locationId: geo });
-      apiRequests++;
       const r = await tfetch(`${JOB_URL}?${qs}`, { headers: { "X-RapidAPI-Key": key, "X-RapidAPI-Host": JOB_HOST } });
       if (r.status === 429) {
         const msg = (await r.text().catch(() => "")).slice(0, 200);
@@ -237,14 +283,26 @@ async function searchJobs(key, kw, geo) {
   return { jobs: [], status: last };
 }
 
+// Coarse size labels are kept as-is so links and saved filters from the first 255 issues still work;
+// the exact band lives in the issue body.
+function issueLabels(it) {
+  const labels = ["gtm-job", `region:${it.region}`];
+  // An unknown headcount is labelled as such rather than assumed small — the small cascade is a
+  // safe default for finding contacts, but "size:1-200" on the issue would be a claim, not a guess.
+  labels.push(it.size ? (SMALL_SIZES.has(it.size) ? "size:1-200" : "size:201+") : "size:unknown");
+  if (it.size) labels.push(`size:${it.size}`);
+  if (it.family) labels.push(`role:${it.family}`);
+  return labels;
+}
+
 function issueBody(it) {
   const lines = [];
   lines.push(`**Company:** ${it.companyUrl ? `[${it.companyName}](${it.companyUrl})` : it.companyName}`);
-  lines.push(`**Role:** ${it.title}`);
+  lines.push(`**Role:** ${it.title}` + (it.family ? ` (${it.family})` : ""));
   lines.push(`**Location:** ${it.location} · ${it.region}`);
   if (it.posted) lines.push(`**Posted:** ${it.posted}`);
   if (it.jobUrl) lines.push(`**Job post:** ${it.jobUrl}`);
-  lines.push(`**Company size:** ${it.large ? "201+ employees" : "≤200 employees"}`);
+  lines.push(`**Company size:** ${it.size ? `${it.size} employees` : "unknown"}`);
   lines.push("");
   lines.push(`### Points of contact (${it.dms.length})`);
   if (it.dms.length) {
@@ -259,6 +317,20 @@ function issueBody(it) {
   lines.push("");
   lines.push(`<!-- gtm-jobs-feed job_id=${it.jobId} -->`);
   return lines.join("\n");
+}
+
+// The search grid, ordered by expected yield so the request budget always buys US + EU coverage for
+// every keyword first. AU/NZ take the remainder and rotate by week, so over consecutive runs every
+// keyword still gets searched there — just not all of them in the same week.
+function buildPairs(weekIndex) {
+  const core = [], tail = [];
+  for (const kw of KEYWORDS) {
+    for (const region of CORE_REGIONS) core.push({ kw, region });
+    for (const region of TAIL_REGIONS) tail.push({ kw, region });
+  }
+  const slice = Math.max(1, MAX_REQUESTS - core.length);
+  const offset = tail.length ? (weekIndex * slice) % tail.length : 0;
+  return [...core, ...tail.slice(offset), ...tail.slice(0, offset)];
 }
 
 async function main() {
@@ -284,8 +356,7 @@ async function main() {
   const cutoff = Date.now() - RECENT_DAYS * 86400_000;
 
   // 1) search
-  const pairs = [];
-  for (const kw of KEYWORDS) for (const region of Object.keys(LOCATIONS)) pairs.push({ kw, region });
+  const pairs = buildPairs(Math.floor(Date.now() / (7 * 86400_000)));
   const results = await mapPool(pairs, SEARCH_CONCURRENCY, async (p) => {
     const res = await searchJobs(secrets.RAPIDAPI_KEY, p.kw, LOCATIONS[p.region]);
     for (const j of res.jobs) j._region = p.region;
@@ -293,7 +364,11 @@ async function main() {
   });
   const okSearches = results.filter((r) => r.status === "ok").length;
   const fails = {};
-  for (const r of results) if (r.status !== "ok") fails[r.status] = (fails[r.status] ?? 0) + 1;
+  for (const r of results) if (r.status !== "ok" && r.status !== "budget") fails[r.status] = (fails[r.status] ?? 0) + 1;
+  // A pair the budget never paid for is not a failure, but it is coverage this run did not have —
+  // name it, so "no Growth Lead jobs in NZ" is never confused with "we did not look".
+  const skipped = pairs.filter((_, i) => results[i].status === "budget").map((p) => `${p.kw}/${p.region}`);
+  const attempted = pairs.length - skipped.length;
 
   // 2) filter + dedupe
   let fetched = 0;
@@ -303,7 +378,7 @@ async function main() {
     for (const j of jobs) {
       const jid = String(j?.id ?? "");
       if (!jid || fresh.has(jid)) continue;
-      if (!TITLE_ALLOW.test(j.title ?? "")) continue;
+      if (!titleFamily(j.title)) continue;
       if ((j.postedTimestamp ?? 0) < cutoff) continue;
       fresh.set(jid, j);
     }
@@ -319,9 +394,9 @@ async function main() {
     seen.companies.add(ckey); // guard against same-run dupes; persisted only after issue succeeds
     items.push({
       jobId: jid, companyKey: ckey, companyUrl: cu, companyName: j.company?.name ?? "(unknown)",
-      title: j.title ?? "GTM Engineer", location: j.location ?? "", region: j._region ?? "",
+      title: j.title ?? "GTM Engineer", family: titleFamily(j.title), location: j.location ?? "", region: j._region ?? "",
       posted: j.postedTimestamp ? new Date(j.postedTimestamp).toISOString().slice(0, 10) : "",
-      jobUrl: j.url ?? "", large: false, dms: [], aimfoxQueued: false,
+      jobUrl: j.url ?? "", size: "", tier: "small", dms: [], aimfoxQueued: false,
     });
   }
   // reset same-run company guard so we only persist truly-filed companies below
@@ -335,8 +410,9 @@ async function main() {
   if (secrets.BLITZ_API_KEY) {
     await mapPool(items, DM_CONCURRENCY, async (it) => {
       if (!it.companyUrl) return;
-      it.large = await companyIsLarge(secrets.BLITZ_API_KEY, it.companyUrl);
-      it.dms = await findDecisionMakers(secrets.BLITZ_API_KEY, it.companyUrl, it.large);
+      it.size = await companySize(secrets.BLITZ_API_KEY, it.companyUrl);
+      it.tier = sizeTier(it.size);
+      it.dms = await findDecisionMakers(secrets.BLITZ_API_KEY, it.companyUrl, it.tier);
       it.aimfoxQueued = useAimfox && it.dms.length > 0;
     });
   }
@@ -348,7 +424,7 @@ async function main() {
   for (const it of items) {
     try {
       if (DRY_RUN) { console.log(`[dry-run] issue: ${it.companyName} — ${it.title} (${it.dms.length} DMs)`); }
-      else { const n = await createIssue({ title: `${it.companyName} — ${it.title} · ${it.region}`, body: issueBody(it), labels: ["gtm-job", `region:${it.region}`, it.large ? "size:201+" : "size:1-200"] }); console.log(`#${n} ${it.companyName}`); }
+      else { const n = await createIssue({ title: `${it.companyName} — ${it.title} · ${it.region}`, body: issueBody(it), labels: issueLabels(it) }); console.log(`#${n} ${it.companyName}`); }
       issuesCreated++;
       seen.jobIds.add(it.jobId);
       seen.companies.add(it.companyKey);
@@ -375,7 +451,8 @@ async function main() {
   const summary = [
     `fetched=${fetched} matched=${matched} new=${items.length} issues=${issuesCreated}` + (capped ? ` capped=${capped}` : ""),
     `requests=${apiRequests} (rapidapi)`,
-    `searches ok=${okSearches}/${pairs.length}` + (Object.keys(fails).length ? ` fails=${JSON.stringify(fails)}` : ""),
+    `searches ok=${okSearches}/${attempted}` + (Object.keys(fails).length ? ` fails=${JSON.stringify(fails)}` : ""),
+    skipped.length ? `budget: ${apiRequests}/${MAX_REQUESTS} requests spent, ${skipped.length} pair(s) not searched: ${skipped.join(", ")}` : "",
     rateLimitNotes.size ? `rapidapi 429 said: ${[...rateLimitNotes].join(" | ")}` : "",
     quotaState ? `rapidapi plan: ${quotaState}` : "",
     dmDiag,
@@ -388,11 +465,11 @@ async function main() {
 
   // A run that fetched nothing is a failed run, not a quiet one. Exiting 0 here is what let three
   // separate weeks of total rate-limiting show up as a green check with no jobs filed.
-  if (pairs.length && okSearches === 0) {
+  if (attempted && okSearches === 0) {
     console.error(`::error::every search failed (${JSON.stringify(fails)}) — no jobs were fetched`);
     process.exitCode = 1;
-  } else if (okSearches < pairs.length) {
-    console.warn(`::warning::${pairs.length - okSearches}/${pairs.length} searches failed — this run saw only part of the feed`);
+  } else if (okSearches < attempted) {
+    console.warn(`::warning::${attempted - okSearches}/${attempted} searches failed — this run saw only part of the feed`);
   }
 }
 

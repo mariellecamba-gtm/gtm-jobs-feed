@@ -39,6 +39,9 @@ jobs:
           AIMFOX_CAMPAIGN_ID: ${{ secrets.AIMFOX_CAMPAIGN_ID }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+          # Optional repo variable — RapidAPI requests one run may spend. Unset falls back to the
+          # script default (15), which fits a 75-requests/month plan across 5 possible Mondays.
+          MAX_REQUESTS: ${{ vars.MAX_REQUESTS }}
           RUN_TIMESTAMP: ${{ github.run_id }}
         run: node scripts/run.mjs
 
