@@ -2,8 +2,8 @@
 
 **A free, public, continuously updated list of open GTM Engineer (Go-To-Market
 Engineer), GTM Operations, Growth Engineer and Growth Lead jobs across the US,
-Europe, Australia and New Zealand.** Every role that appears becomes one GitHub
-issue in this repo, so the
+Europe and Australia.** Every role that appears becomes one GitHub issue in this
+repo, so the
 [issue list](https://github.com/mariellecamba-gtm/gtm-jobs-feed/issues) *is* the
 job board. It updates itself every Monday and there is nothing to sign up for.
 
@@ -13,13 +13,12 @@ job board. It updates itself every Monday and there is nothing to sign up for.
 of this page. GitHub then emails you every time a new job is filed. That is the
 whole subscription mechanism, and it is free.
 
-Roles are labelled by region (`region:US`, `region:EU`, `region:Australia`,
-`region:New Zealand`), by role type (`role:GTM Engineer`, `role:GTM Operations`,
-`role:Growth Engineer`, `role:Growth Lead`) and by company size — both the
-original coarse bands (`size:1-200`, `size:201+`) and the exact one
-(`size:11-50`, `size:1001-5000`, …) — so you can filter to what you actually
-want. So far that is 160 US roles, 86 in Europe and 9 in Australia and New
-Zealand.
+Roles are labelled by region (`region:US`, `region:EU`, `region:Australia`), by role type
+(`role:GTM Engineer`, `role:GTM Operations`, `role:Growth Engineer`,
+`role:Growth Lead`) and by company size — both the original coarse bands
+(`size:1-200`, `size:201+`) and the exact one (`size:11-50`, `size:1001-5000`,
+…) — so you can filter to what you actually want. So far that is 160 US roles,
+86 in Europe and 9 in Australia.
 
 **Company size is not a filter.** A two-person startup and a 10,001+ employee
 enterprise both get filed, as long as the posting is one of the four role
@@ -68,10 +67,10 @@ for whether a role is still open, and sort by newest to see this week's.
 Every **Monday at 06:00 UTC** ([`.github/workflows/daily.yml`](.github/workflows/daily.yml)) GitHub Actions runs
 [`scripts/run.mjs`](scripts/run.mjs), which:
 
-1. Searches the `professional-network-data` RapidAPI across the 5 keywords × 4 regions,
-   spending at most `MAX_REQUESTS` (default 15) requests. US and EU are searched for every
-   keyword every week; Australia and New Zealand take the remainder and rotate, so the whole
-   grid is covered every two weeks. Any pair the budget did not buy is named in the run summary.
+1. Searches the `professional-network-data` RapidAPI across the 5 keywords × 3 regions —
+   15 requests, exactly the `MAX_REQUESTS` (default 15) per-run ceiling. US and EU are
+   searched for every keyword; Australia gets whatever budget is left, so retries cost
+   Australian coverage before European. Any pair the budget did not buy is named in the summary.
 2. Keeps only titles matching one of the four role families above, posted in the last 7 days.
 3. Drops anything already filed — dedupes by **job id** and by **company** (one issue per company, ever)
    using [`state/seen.json`](state/seen.json), which the workflow commits back after each run.
@@ -85,9 +84,10 @@ Every **Monday at 06:00 UTC** ([`.github/workflows/daily.yml`](.github/workflows
    which sends LinkedIn connection requests from the `mariellecamba` account.
 
 A safety cap (`MAX_ISSUES`, default 40) limits how many issues a single run can open, and
-`MAX_REQUESTS` (default 15) caps RapidAPI spend per run — 15 × 5 possible Mondays keeps a
-75-requests/month plan from running dry mid-month. On a bigger plan, set `MAX_REQUESTS` to 20
-and every keyword × region pair is searched every week.
+`MAX_REQUESTS` (default 15) caps RapidAPI spend per run — 15 × 5 possible Mondays fits a
+75-requests/month plan. New Zealand was dropped in August 2026: it had produced no roles at
+all across the life of the feed while costing a quarter of every run's budget. Adding a region
+back is one entry in `TAIL_REGIONS`.
 
 ## Running your own copy
 
@@ -147,8 +147,10 @@ is missed.
 
 ### Which regions does it cover?
 
-United States, Europe, Australia and New Zealand. Each issue carries a
-`region:US`, `region:EU`, `region:Australia` or `region:New Zealand` label.
+The United States, Europe and Australia. Each issue carries a `region:US`,
+`region:EU` or `region:Australia` label. New Zealand was searched until August
+2026 and dropped — it had never produced a single role, for a quarter of the
+search budget.
 
 ### How do I get notified about new GTM Engineer jobs?
 
@@ -176,7 +178,7 @@ one of the four families. The `size:*` labels let you filter if you care.
 
 ### Can I submit a role?
 
-Open an issue. The automation only searches five keywords across four regions,
+Open an issue. The automation only searches five keywords across three regions,
 so it misses things, and a role posted only on a company's own careers page will
 never show up here.
 
