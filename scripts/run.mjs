@@ -1,6 +1,6 @@
 // GTM Jobs Feed — GitHub-native runtime.
 // Finds GTM Engineer / Go-To-Market Engineer / GTM Operations / Growth Engineer / Growth Lead roles
-// (US, EU, AU, NZ) at companies of ANY size, opens ONE GitHub issue per new job post with its points
+// (US, EU, AU) at companies of ANY size, opens ONE GitHub issue per new job post with its points
 // of contact, and pushes those points of contact to an Aimfox campaign.
 // Runs weekly on GitHub Actions (see .github/workflows/daily.yml). Node 20+, zero dependencies.
 //
@@ -18,11 +18,14 @@ const JOB_HOST = "professional-network-data.p.rapidapi.com";
 const JOB_URL = `https://${JOB_HOST}/search-jobs-v2`;
 
 const KEYWORDS = ["GTM Engineer", "Go To Market Engineer", "GTM Operations", "Growth Engineer", "Growth Lead"];
-const LOCATIONS = { "US": "103644278", "EU": "91000000", "Australia": "101452733", "New Zealand": "105490917" };
-// US and EU carry ~97% of the volume ever filed, so they are searched for every keyword every run;
-// AU/NZ share whatever request budget is left and rotate week to week (see buildPairs).
+// New Zealand (105490917) was dropped 2026-08-27: it produced zero issues across the whole life of
+// the feed while costing a quarter of every run's RapidAPI budget. Add it back as a TAIL_REGIONS
+// entry to try again.
+const LOCATIONS = { "US": "103644278", "EU": "91000000", "Australia": "101452733" };
+// US and EU are searched for every keyword every run. Tail regions get only the budget left over
+// afterwards and rotate week to week, so a run short on requests loses Australia, never Europe.
 const CORE_REGIONS = ["US", "EU"];
-const TAIL_REGIONS = ["Australia", "New Zealand"];
+const TAIL_REGIONS = ["Australia"];
 
 // The four title families this feed tracks. A posting has to match one of them on the TITLE — the
 // keyword search alone is relevance-ranked and happily returns "Growth Marketing Manager" for
@@ -59,10 +62,11 @@ const ENTERPRISE_SIZES = new Set(["1001-5000", "5001-10000", "10001+"]);
 
 const RECENT_DAYS = Number(process.env.RECENT_DAYS || 7);
 const MAX_ISSUES = Number(process.env.MAX_ISSUES || 40);
-// RapidAPI's plan is metered per request per month, not per run, so the grid (5 keywords x 4 regions
-// = 20 pairs, plus retries) can outrun a month's quota in three weeks and leave the feed dead until
-// it resets. This is the hard ceiling on what one run may spend; pairs past it are skipped and named
-// in the summary rather than silently dropped. Raise it if the plan gets bigger.
+// RapidAPI's plan is metered per request per month, not per run, so an unbounded grid plus retries
+// can outrun a month's quota in three weeks and leave the feed dead until it resets. This is the
+// hard ceiling on what one run may spend; pairs past it are skipped and named in the summary rather
+// than silently dropped. The grid is 5 keywords x 3 regions = 15 pairs, which is exactly the
+// default — 15 x 5 possible Mondays fits a 75/month plan, and retries eat into Australia first.
 const MAX_REQUESTS = Number(process.env.MAX_REQUESTS || 15);
 const DRY_RUN = process.env.DRY_RUN === "1";
 const TIMEOUT_MS = 25000, RETRIES = 4, SEARCH_CONCURRENCY = 2, DM_CONCURRENCY = 3;
