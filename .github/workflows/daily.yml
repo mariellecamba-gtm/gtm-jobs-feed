@@ -45,15 +45,16 @@ jobs:
           RUN_TIMESTAMP: ${{ github.run_id }}
         run: node scripts/run.mjs
 
-      - name: Commit updated dedupe state
-        if: ${{ !inputs.dry_run }}
+      # Commit even when the feed step failed: that is how a quota 429 persists
+      # quotaResetAt so the 14:00 backup and later Mondays stand down. GitHub also
+      # disables a scheduled workflow after 60 days of repository INACTIVITY, and
+      # its own cron runs do not count — last-run.txt is the heartbeat commit.
+      - name: Persist state (and keep the schedule alive)
+        if: ${{ always() && !inputs.dry_run }}
         run: |
-          if [[ -n "$(git status --porcelain state/seen.json)" ]]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add state/seen.json
-            git commit -m "chore: update dedupe state [skip ci]"
-            git push
-          else
-            echo "no state change"
-          fi
+          date -u +"last run: %Y-%m-%dT%H:%M:%SZ (${{ job.status }})" > last-run.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add last-run.txt state/seen.json
+          git diff --staged --quiet || git commit -m "chore: update run state [skip ci]"
+          git push
