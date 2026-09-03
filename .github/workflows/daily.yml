@@ -27,7 +27,7 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -37,23 +37,21 @@ jobs:
 
       - name: Run feed
         env:
-          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
           BLITZ_API_KEY: ${{ secrets.BLITZ_API_KEY }}
+          GETLEADS_API_KEY: ${{ secrets.GETLEADS_API_KEY }}
+          PROSPEO_API_KEY: ${{ secrets.PROSPEO_API_KEY }}
           AIMFOX_API_KEY: ${{ secrets.AIMFOX_API_KEY }}
           AIMFOX_CAMPAIGN_ID: ${{ secrets.AIMFOX_CAMPAIGN_ID }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
-          # Optional repo variable — RapidAPI requests one run may spend. Unset falls back to the
-          # script default (15), which fits a 75-requests/month plan across 5 possible Mondays.
-          MAX_REQUESTS: ${{ vars.MAX_REQUESTS }}
-          RECENT_DAYS: ${{ inputs.recent_days }}
+          RECENT_DAYS: ${{ github.event.inputs.recent_days || '7' }}
           RUN_TIMESTAMP: ${{ github.run_id }}
         run: node scripts/run.mjs
 
-      # Commit even when the feed step failed: that is how a quota 429 persists
-      # quotaResetAt so the 14:00 backup and later Mondays stand down. GitHub also
-      # disables a scheduled workflow after 60 days of repository INACTIVITY, and
-      # its own cron runs do not count — last-run.txt is the heartbeat commit.
+      # Commit even when the feed step failed so lastOkRun / seen.json persist.
+      # GitHub disables a scheduled workflow after 60 days of repository
+      # INACTIVITY, and its own cron runs do not count — last-run.txt is the
+      # heartbeat commit.
       - name: Persist state (and keep the schedule alive)
         if: ${{ always() && !inputs.dry_run }}
         run: |
