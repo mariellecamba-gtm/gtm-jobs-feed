@@ -11,6 +11,10 @@ on:
         description: "Dry run (no issues, no Aimfox, no state commit)"
         type: boolean
         default: false
+      recent_days:
+        description: "Lookback window in days (scheduled runs stay at 7)"
+        type: string
+        default: "7"
 
 concurrency:
   group: gtm-jobs-feed
@@ -42,6 +46,7 @@ jobs:
           # Optional repo variable — RapidAPI requests one run may spend. Unset falls back to the
           # script default (15), which fits a 75-requests/month plan across 5 possible Mondays.
           MAX_REQUESTS: ${{ vars.MAX_REQUESTS }}
+          RECENT_DAYS: ${{ inputs.recent_days }}
           RUN_TIMESTAMP: ${{ github.run_id }}
         run: node scripts/run.mjs
 
