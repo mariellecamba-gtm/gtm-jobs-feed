@@ -65,7 +65,7 @@ for whether a role is still open, and sort by newest to see this week's.
 ## How it works
 
 Every **Monday at 06:00 UTC** ([`.github/workflows/daily.yml`](.github/workflows/daily.yml)) GitHub Actions runs
-[`scripts/run.mjs`](scripts/run.mjs), which:
+[`scripts/run.mjs`](scripts/run.mjs) (with a 14:00 UTC backup if the morning run never fetched), which:
 
 1. Searches the `professional-network-data` RapidAPI across the 5 keywords × 3 regions —
    15 requests, exactly the `MAX_REQUESTS` (default 15) per-run ceiling. US and EU are
@@ -85,9 +85,11 @@ Every **Monday at 06:00 UTC** ([`.github/workflows/daily.yml`](.github/workflows
 
 A safety cap (`MAX_ISSUES`, default 40) limits how many issues a single run can open, and
 `MAX_REQUESTS` (default 15) caps RapidAPI spend per run — 15 × 5 possible Mondays fits a
-75-requests/month plan. New Zealand was dropped in August 2026: it had produced no roles at
-all across the life of the feed while costing a quarter of every run's budget. Adding a region
-back is one entry in `TAIL_REGIONS`.
+75-requests/month plan. If a run hits the monthly quota, the reset time is written to
+`state/seen.json` and later scheduled runs stand down until then, so the backup cron does
+not spend another 15 requests on the same 429. New Zealand was dropped in August 2026: it
+had produced no roles at all across the life of the feed while costing a quarter of every
+run's budget. Adding a region back is one entry in `TAIL_REGIONS`.
 
 ## Running your own copy
 

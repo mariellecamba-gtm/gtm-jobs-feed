@@ -125,13 +125,19 @@ const companyKeyOf = (cu, name) => (cu || name || "").toLowerCase().trim();
 async function loadSeen() {
   try {
     const j = JSON.parse(await readFile(SEEN_PATH, "utf8"));
-    return { jobIds: new Set(j.jobIds || []), companies: new Set((j.companies || []).map((c) => c.toLowerCase())), lastOkRun: j.lastOkRun || "" };
-  } catch { return { jobIds: new Set(), companies: new Set(), lastOkRun: "" }; }
+    return {
+      jobIds: new Set(j.jobIds || []),
+      companies: new Set((j.companies || []).map((c) => c.toLowerCase())),
+      lastOkRun: j.lastOkRun || "",
+      quotaResetAt: j.quotaResetAt || "",
+    };
+  } catch { return { jobIds: new Set(), companies: new Set(), lastOkRun: "", quotaResetAt: "" }; }
 }
 async function saveSeen(seen) {
   const body = JSON.stringify({
     updatedAt: process.env.RUN_TIMESTAMP || "",
     lastOkRun: seen.lastOkRun || "",
+    quotaResetAt: seen.quotaResetAt || "",
     jobIds: [...seen.jobIds].sort(),
     companies: [...seen.companies].sort(),
   }, null, 2);
@@ -232,6 +238,13 @@ const rateLimitNotes = new Set();
 // RapidAPI reports the plan window on every response. On a quota 429 it is the only thing that
 // says when the feed can work again, so it goes in the summary instead of needing the dashboard.
 let quotaState = "";
+// ISO timestamp of the RapidAPI monthly reset, taken from the 429 headers. Persisted so the
+// backup cron and later Mondays stand down instead of each burning another 15 requests on 429s.
+let quotaResetAt = "";
+// Once any search hears a monthly-quota 429, further pairs return immediately — a plan quota
+// does not refill mid-run, so the rest of the grid would only spend the leftover budget on
+// identical failures (this is how Aug 31 used 30 requests to learn the same -16/75 twice).
+let quotaExhausted = false;
 // Every RapidAPI call goes through searchJobs, so this is the run's exact spend against the
 // monthly plan — the number that decides whether the schedule fits in the quota.
 let apiRequests = 0;
@@ -241,8 +254,11 @@ function readQuota(r) {
   const reset = r.headers.get("x-ratelimit-requests-reset");
   if (!limit && !left && !reset) return "";
   const secs = Number(reset);
-  const when = Number.isFinite(secs) && secs > 0
-    ? `${Math.round(secs / 86400)}d (${new Date(Date.now() + secs * 1000).toISOString().slice(0, 16).replace("T", " ")}Z)`
+  if (Number.isFinite(secs) && secs > 0) {
+    quotaResetAt = new Date(Date.now() + secs * 1000).toISOString();
+  }
+  const when = quotaResetAt
+    ? `${Math.round(secs / 86400)}d (${quotaResetAt.slice(0, 16).replace("T", " ")}Z)`
     : (reset ?? "?");
   return `${left ?? "?"}/${limit ?? "?"} requests left, resets in ${when}`;
 }
@@ -253,6 +269,7 @@ async function searchJobs(key, kw, geo) {
   for (let attempt = 0; attempt < RETRIES; attempt++) {
     // Reserve the request before awaiting anything, or two concurrent searches both pass the
     // check on the last unit of budget and the run overspends by SEARCH_CONCURRENCY.
+    if (quotaExhausted) return { jobs: [], status: "budget" };
     if (apiRequests >= MAX_REQUESTS) return { jobs: [], status: attempt === 0 ? "budget" : last };
     apiRequests++;
     await waitGate();
@@ -264,9 +281,12 @@ async function searchJobs(key, kw, geo) {
         const msg = (await r.text().catch(() => "")).slice(0, 200);
         if (rateLimitNotes.size < 4) rateLimitNotes.add(msg || "(no body)");
         quotaState = readQuota(r) || quotaState;
-        // A plan quota does not refill on a timescale this run can wait out — stop immediately
-        // rather than spending the job's remaining minutes on retries that cannot succeed.
-        if (/quota/i.test(msg)) return { jobs: [], status: "quota" };
+        // A plan quota does not refill on a timescale this run can wait out — stop the whole
+        // grid immediately rather than spending the leftover budget on identical 429s.
+        if (/quota/i.test(msg)) {
+          quotaExhausted = true;
+          return { jobs: [], status: "quota" };
+        }
         const wait = retryAfterMs(r) || RATE_BACKOFF_MS[Math.min(rateHits, RATE_BACKOFF_MS.length - 1)];
         rateHits++;
         last = "http429";
@@ -354,6 +374,15 @@ async function main() {
   // Manual dispatches are never skipped, so a forced re-run still works.
   if (process.env.GITHUB_EVENT_NAME === "schedule" && seen.lastOkRun === today) {
     console.log(`skipped: a scheduled run already fetched successfully today (${today}) — 0 API requests made`);
+    return;
+  }
+
+  // A monthly-quota 429 cannot be retried until RapidAPI resets the plan. Persist the reset
+  // instant and stand the remaining Mondays down, otherwise each one spends MAX_REQUESTS to
+  // hear the same 429 (Aug 31 burned 30 requests this way after the plan was already at -16/75).
+  const quotaUntil = Date.parse(seen.quotaResetAt || "");
+  if (process.env.GITHUB_EVENT_NAME === "schedule" && Number.isFinite(quotaUntil) && Date.now() < quotaUntil) {
+    console.log(`skipped: RapidAPI monthly quota resets ${seen.quotaResetAt} — 0 API requests made`);
     return;
   }
 
@@ -448,8 +477,14 @@ async function main() {
   }
 
   // 6) persist dedupe state — recording today only when searches actually returned, so a
-  // rate-limited primary still leaves the backup run free to try again.
-  if (okSearches > 0) seen.lastOkRun = today;
+  // rate-limited primary still leaves the backup run free to try again. A monthly-quota
+  // 429 is the opposite: later runs must not retry until the plan resets.
+  if (okSearches > 0) {
+    seen.lastOkRun = today;
+    seen.quotaResetAt = "";
+  } else if (quotaResetAt) {
+    seen.quotaResetAt = quotaResetAt;
+  }
   await saveSeen(seen);
 
   const summary = [
@@ -470,7 +505,11 @@ async function main() {
   // A run that fetched nothing is a failed run, not a quiet one. Exiting 0 here is what let three
   // separate weeks of total rate-limiting show up as a green check with no jobs filed.
   if (attempted && okSearches === 0) {
-    console.error(`::error::every search failed (${JSON.stringify(fails)}) — no jobs were fetched`);
+    if (fails.quota) {
+      console.error(`::error::RapidAPI monthly quota exhausted until ${seen.quotaResetAt || "the plan reset"} — no jobs were fetched`);
+    } else {
+      console.error(`::error::every search failed (${JSON.stringify(fails)}) — no jobs were fetched`);
+    }
     process.exitCode = 1;
   } else if (okSearches < attempted) {
     console.warn(`::warning::${attempted - okSearches}/${attempted} searches failed — this run saw only part of the feed`);
