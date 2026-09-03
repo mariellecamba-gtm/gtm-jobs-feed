@@ -67,42 +67,40 @@ for whether a role is still open, and sort by newest to see this week's.
 Every **Monday at 06:00 UTC** ([`.github/workflows/daily.yml`](.github/workflows/daily.yml)) GitHub Actions runs
 [`scripts/run.mjs`](scripts/run.mjs) (with a 14:00 UTC backup if the morning run never fetched), which:
 
-1. Searches the `professional-network-data` RapidAPI across the 5 keywords × 3 regions —
-   15 requests, exactly the `MAX_REQUESTS` (default 15) per-run ceiling. US and EU are
-   searched for every keyword; Australia gets whatever budget is left, so retries cost
-   Australian coverage before European. Any pair the budget did not buy is named in the summary.
-2. Keeps only titles matching one of the four role families above, posted in the last 7 days.
+1. Searches Blitz `/v2/jobs/search` for the five title strings (GTM Engineer, Go To Market
+   Engineer, GTM Operations, Growth Engineer, Growth Lead) posted in the lookback window,
+   then keeps US / EU / Australia. Blitz also supplies the LinkedIn posting URL and
+   company page. GetLeads and Prospeo cannot do this — they search people, not open jobs.
+2. Keeps only titles matching one of the four role families above, posted in the last 7 days
+   (or the `recent_days` you pass on a manual run).
 3. Drops anything already filed — dedupes by **job id** and by **company** (one issue per company, ever)
    using [`state/seen.json`](state/seen.json), which the workflow commits back after each run.
 4. For each new company — **any size**, from 1 employee to 10,001+ — finds up to **3 points of
-   contact** via Blitz **Waterfall ICP**, with the cascade chosen by headcount: ≤200 includes
-   CEO/Founder + Revenue + Growth; 201–1000 skips the CEO for Growth/GTM + Revenue; 1001+ goes
-   after the Director/VP layer that owns GTM systems (Growth, RevOps, Sales Ops, Demand Gen).
+   contact**. GetLeads colleagues-by-domain runs first; Prospeo `/search-person` fills any
+   remaining slots. The title cascade is chosen by headcount: ≤200 includes CEO/Founder +
+   Revenue + Growth; 201–1000 skips the CEO for Growth/GTM + Revenue; 1001+ goes after the
+   Director/VP layer that owns GTM systems (Growth, RevOps, Sales Ops, Demand Gen).
 5. **Opens a GitHub issue** for the job post with the points of contact listed (labels: `gtm-job`,
    `region:*`, `size:*`, `role:*`).
 6. **Pushes those points of contact to Aimfox** (campaign `GTM Engineer Hiring — Decision Makers`),
    which sends LinkedIn connection requests from the `mariellecamba` account.
 
-A safety cap (`MAX_ISSUES`, default 40) limits how many issues a single run can open, and
-`MAX_REQUESTS` (default 15) caps RapidAPI spend per run — 15 × 5 possible Mondays fits a
-75-requests/month plan. If a run hits the monthly quota, the reset time is written to
-`state/seen.json` and later scheduled runs stand down until then, so the backup cron does
-not spend another 15 requests on the same 429. New Zealand was dropped in August 2026: it
-had produced no roles at all across the life of the feed while costing a quarter of every
-run's budget. Adding a region back is one entry in `TAIL_REGIONS`.
+A safety cap (`MAX_ISSUES`, default 40) limits how many issues a single run can open.
+Blitz job search is free/unlimited on the GEX plan; `MAX_PAGES` (default 20) is the pagination
+ceiling. New Zealand was dropped in August 2026.
 
 ## Running your own copy
 
 Fork it, point it at your own titles and regions, and it files its own issues.
-You will need your own keys for the three services below, none of which are
-free.
+You will need your own keys for the services below.
 
 **Actions secrets** (Settings → Secrets and variables → Actions):
 
 | Secret | Purpose |
 | --- | --- |
-| `RAPIDAPI_KEY` | RapidAPI key subscribed to `professional-network-data` |
-| `BLITZ_API_KEY` | Blitz key for company-size enrichment + Waterfall ICP |
+| `BLITZ_API_KEY` | Blitz key for `/v2/jobs/search` + company-size / domain enrichment |
+| `GETLEADS_API_KEY` | GetLeads key for colleagues-by-domain (primary contact source) |
+| `PROSPEO_API_KEY` | Prospeo key for `/search-person` when GetLeads returns fewer than 3 people |
 | `AIMFOX_API_KEY` | Aimfox API key (push is skipped if unset) |
 | `AIMFOX_CAMPAIGN_ID` | Target Aimfox campaign id |
 
@@ -121,7 +119,7 @@ Actions tab → **GTM Jobs Feed** → **Run workflow** (toggle **Dry run** to pr
 Locally:
 
 ```bash
-RAPIDAPI_KEY=... BLITZ_API_KEY=... DRY_RUN=1 node scripts/run.mjs
+BLITZ_API_KEY=... GETLEADS_API_KEY=... PROSPEO_API_KEY=... DRY_RUN=1 node scripts/run.mjs
 ```
 
 ## Migration notes
