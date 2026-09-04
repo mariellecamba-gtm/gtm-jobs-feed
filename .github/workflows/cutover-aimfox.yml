@@ -1,0 +1,25 @@
+name: Cut over Aimfox campaign
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  cutover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Create campaign and upload all POCs
+        env:
+          AIMFOX_API_KEY: ${{ secrets.AIMFOX_API_KEY }}
+          AIMFOX_CAMPAIGN_ID: ${{ secrets.AIMFOX_CAMPAIGN_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node scripts/cutover-aimfox-campaign.mjs
