@@ -5,12 +5,13 @@
 import { writeFile } from "node:fs/promises";
 
 const OLD_ID = process.env.AIMFOX_CAMPAIGN_ID || "333d3b30-393a-4a23-ab0f-001f41aedc6d";
+const TARGET_ID = process.env.AIMFOX_TARGET_CAMPAIGN_ID || "";
 const KEY = process.env.AIMFOX_API_KEY;
 const REPO = process.env.GITHUB_REPOSITORY || "mariellecamba-gtm/gtm-jobs-feed";
 const [OWNER, NAME] = REPO.split("/");
 const TOKEN = process.env.GITHUB_TOKEN;
 const NAME_NEW = process.env.AIMFOX_NEW_NAME || "GTM Engineer Hiring — Intro 2026-09-05";
-const TIMEOUT_MS = 40000;
+const TIMEOUT_MS = 90000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const tfetch = (url, init = {}, ms = TIMEOUT_MS) => fetch(url, { ...init, signal: AbortSignal.timeout(ms) });
 
@@ -115,23 +116,29 @@ async function pushProfiles(campaignId, profiles) {
     };
     let ok = false;
     for (let attempt = 0; attempt < 3; attempt++) {
-      const r = await aimfox(`/campaigns/${campaignId}/audience/multiple`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      }, 90000);
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        reasons.add(`http${r.status}`);
-        await sleep(1500);
-        continue;
+      try {
+        const r = await aimfox(`/campaigns/${campaignId}/audience/multiple`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        }, 90000);
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          reasons.add(`http${r.status}`);
+          await sleep(2000);
+          continue;
+        }
+        added += (d?.profiles?.length ?? 0);
+        failed += (d?.failed?.length ?? 0);
+        for (const v of Object.values(d?.failedReason ?? {})) reasons.add(String(v));
+        ok = true;
+        break;
+      } catch (e) {
+        reasons.add(e.name === "TimeoutError" ? "timeout" : String(e.message || e));
+        await sleep(2000);
       }
-      added += (d?.profiles?.length ?? 0);
-      failed += (d?.failed?.length ?? 0);
-      for (const v of Object.values(d?.failedReason ?? {})) reasons.add(String(v));
-      ok = true;
-      break;
     }
     if (!ok) failed += chunk.length;
+    if ((i / 10) % 5 === 0) console.log(`upload_progress ${Math.min(i + 10, profiles.length)}/${profiles.length} added=${added} failed=${failed}`);
   }
   return { added, failed, reasons: [...reasons] };
 }
@@ -143,8 +150,14 @@ console.log(`issues=${issues.length} unique_contacts=${contacts.length}`);
 const old = await getOldCampaign();
 console.log(`old_campaign=${old.id || OLD_ID} name=${old.name} type=${old.outreach_type} state=${old.state} owners=${JSON.stringify(old.owners || [])}`);
 
-const created = await createCampaign(old);
-console.log(`new_campaign=${created.id} name=${created.name} state=${created.state} outreach_type=${created.outreach_type}`);
+let created;
+if (TARGET_ID) {
+  created = { id: TARGET_ID, name: NAME_NEW, state: "existing", outreach_type: old.outreach_type };
+  console.log(`reuse_campaign=${TARGET_ID}`);
+} else {
+  created = await createCampaign(old);
+  console.log(`new_campaign=${created.id} name=${created.name} state=${created.state} outreach_type=${created.outreach_type}`);
+}
 
 const push = await pushProfiles(created.id, contacts);
 console.log(`uploaded=${push.added} failed=${push.failed}` + (push.reasons.length ? ` reasons=${push.reasons.slice(0, 6).join(",")}` : ""));
