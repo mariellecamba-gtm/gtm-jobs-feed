@@ -2,6 +2,12 @@ name: Cut over Aimfox campaign
 
 on:
   workflow_dispatch:
+    inputs:
+      target_campaign_id:
+        description: "Existing Aimfox campaign id to upload into (skip create)"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -22,4 +28,5 @@ jobs:
           AIMFOX_CAMPAIGN_ID: ${{ secrets.AIMFOX_CAMPAIGN_ID }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          AIMFOX_TARGET_CAMPAIGN_ID: ${{ inputs.target_campaign_id }}
         run: node scripts/cutover-aimfox-campaign.mjs
