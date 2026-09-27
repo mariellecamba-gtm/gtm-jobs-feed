@@ -403,6 +403,8 @@ async function main() {
   };
   if (!secrets.BLITZ_API_KEY) throw new Error("BLITZ_API_KEY missing");
   if (!secrets.GETLEADS_API_KEY && !secrets.PROSPEO_API_KEY) throw new Error("GETLEADS_API_KEY or PROSPEO_API_KEY missing");
+  // Prospeo alone left ~70% of issues without a contact (Sep 2026), so say so loudly.
+  if (!secrets.GETLEADS_API_KEY) console.warn("::warning::GETLEADS_API_KEY not set: contacts come from Prospeo only, expect many issues with no point of contact");
   const seen = await loadSeen();
   const today = new Date().toISOString().slice(0, 10);
 
