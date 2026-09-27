@@ -257,26 +257,35 @@ async function getleadsContacts(key, domain, include) {
 
 async function prospeoContacts(key, domain, include) {
   if (!key || !domain) return [];
-  await pace();
-  const r = await tfetch(PROSPEO_PERSON, {
-    method: "POST",
-    headers: { "X-KEY": key, "Content-Type": "application/json", "User-Agent": BROWSER_UA },
-    body: JSON.stringify({
-      page: 1,
-      filters: {
-        company: { websites: { include: [domain] } },
-        person_job_title: { include, exclude: DM_EXCLUDE },
-      },
-    }),
-  }, 40000);
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok || j.error) return [];
+  // Filter on seniority and pick titles ourselves: Prospeo's person_job_title
+  // only matches its own canonical titles, so our title list returned
+  // NO_RESULTS for every company (even "Head of Growth" at Coursera).
   const out = [];
-  for (const row of (j.results ?? [])) {
-    const p = row.person ?? row;
-    if (!titleWanted(p.job_title || p.title || p.current_job_title, include)) continue;
-    const n = normalizePerson(p);
-    if (n) out.push(n);
+  for (let page = 1; page <= 3 && out.length < MAX_DMS; page++) {
+    await pace();
+    const r = await tfetch(PROSPEO_PERSON, {
+      method: "POST",
+      headers: { "X-KEY": key, "Content-Type": "application/json", "User-Agent": BROWSER_UA },
+      body: JSON.stringify({
+        page,
+        filters: {
+          company: { websites: { include: [domain] } },
+          person_seniority: { include: ["C-Suite", "Founder/Owner", "Vice President", "Head", "Director"] },
+        },
+      }),
+    }, 40000);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.error) {
+      if (j.error_code !== "NO_RESULTS") console.warn(`::warning::Prospeo ${r.status} ${j.error_code || ""} on ${domain}`);
+      break;
+    }
+    for (const row of (j.results ?? [])) {
+      const p = row.person ?? row;
+      if (!titleWanted(p.job_title || p.title || p.current_job_title, include)) continue;
+      const n = normalizePerson(p);
+      if (n) out.push(n);
+    }
+    if (page >= (j.pagination?.total_page ?? 1)) break;
   }
   return out;
 }
