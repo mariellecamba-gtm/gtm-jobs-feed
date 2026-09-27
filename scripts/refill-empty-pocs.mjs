@@ -139,6 +139,36 @@ async function getleadsContacts(key, domain, include) {
   return out;
 }
 
+// Fallback when Blitz gives no domain (e.g. its monthly fair-use limit, HTTP 402):
+// look the company up in Prospeo by name and accept the domain only when the
+// result's LinkedIn company page is the one on the job post, so a common name
+// ("Future", "Nomad") never resolves to someone else.
+const liSlug = (u) => (String(u || "").match(/linkedin\.com\/company\/([^/?#]+)/i)?.[1] || "").toLowerCase();
+async function prospeoCompany(key, name, companyUrl) {
+  const out = { size: "", domain: "" };
+  const want = liSlug(companyUrl);
+  if (!key || !name || !want) return out;
+  for (let page = 1; page <= 3; page++) {
+    await pace();
+    const r = await tfetch(PROSPEO_PERSON, {
+      method: "POST",
+      headers: { "X-KEY": key, "Content-Type": "application/json", "User-Agent": BROWSER_UA },
+      body: JSON.stringify({ page, filters: { company: { names: { include: [name] } } } }),
+    }, 40000).catch(() => null);
+    const j = r ? await r.json().catch(() => ({})) : {};
+    if (!r?.ok || j.error) break;
+    const hit = (j.results ?? []).map((x) => x.company || {}).find((c) => liSlug(c.linkedin_url) === want);
+    if (hit) {
+      out.domain = bareDomain(hit.domain || hit.website || "");
+      if (SIZE_BANDS.includes(hit.employee_range)) out.size = hit.employee_range;
+      else out.size = bandFromHeadcount(Number(hit.employee_count));
+      return out;
+    }
+    if (page >= (j.pagination?.total_page ?? 1)) break;
+  }
+  return out;
+}
+
 async function prospeoContacts(key, domain, include) {
   if (!key || !domain) return [];
   // Seniority filter + local title pick: Prospeo's person_job_title only matches
@@ -323,6 +353,11 @@ async function main() {
   await mapPool(empty, DM_CONCURRENCY, async (it) => {
     try {
       const extra = await companyEnrich(secrets.BLITZ_API_KEY, it.companyUrl);
+      if (!extra.domain) {
+        const pc = await prospeoCompany(secrets.PROSPEO_API_KEY, it.company, it.companyUrl);
+        extra.domain = pc.domain;
+        extra.size ||= pc.size;
+      }
       const tier = sizeTier(extra.size);
       it.people = await findPeople(secrets, extra.domain, it.companyUrl, tier);
       it.domain = extra.domain;
