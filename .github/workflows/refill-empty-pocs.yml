@@ -3,6 +3,10 @@ name: Refill empty points of contact
 # One-off catch-up: re-searches contacts for issues that have none, patches the
 # issue and queues the people to Aimfox. Same keys and campaign as the weekly run.
 on:
+  # One catch-up after Blitz's fair-use limit resets on 2026-10-02 (15:00 UTC Oct 3).
+  # Cron has no year, so this would fire again next Oct 3: delete it after it runs.
+  schedule:
+    - cron: "0 15 3 10 *"
   workflow_dispatch:
     inputs:
       limit:
