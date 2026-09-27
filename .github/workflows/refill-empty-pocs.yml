@@ -1,0 +1,45 @@
+name: Refill empty points of contact
+
+# One-off catch-up: re-searches contacts for issues that have none, patches the
+# issue and queues the people to Aimfox. Same keys and campaign as the weekly run.
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Only the newest N empty issues (0 = all)"
+        type: string
+        default: "3"
+      dry_run:
+        description: "Dry run (no issue edits, no Aimfox)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: gtm-jobs-feed
+  cancel-in-progress: false
+
+jobs:
+  refill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Refill
+        env:
+          BLITZ_API_KEY: ${{ secrets.BLITZ_API_KEY }}
+          GETLEADS_API_KEY: ${{ secrets.GETLEADS_API_KEY }}
+          PROSPEO_API_KEY: ${{ secrets.PROSPEO_API_KEY }}
+          AIMFOX_API_KEY: ${{ secrets.AIMFOX_API_KEY }}
+          AIMFOX_CAMPAIGN_ID: ${{ secrets.AIMFOX_CAMPAIGN_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          LIMIT: ${{ inputs.limit }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+        run: node scripts/refill-empty-pocs.mjs
