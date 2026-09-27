@@ -129,16 +129,25 @@ function postedTs(datePosted) {
 function blitzHeaders(key) {
   return { "x-api-key": key, "Content-Type": "application/json", "User-Agent": BROWSER_UA };
 }
+// 201+ employees: the exact titles above missed most people ("Director, Growth
+// Marketing & Analytics" is not "Director of Growth"), so also accept any
+// director-or-above title in a GTM area.
+const BROAD_AREAS = ["growth", "revenue operations", "revops", "rev ops", "gtm", "go-to-market",
+  "go to market", "sales operations", "sales ops", "marketing operations", "demand gen", "revenue"];
+const SENIOR_RE = /\b(director|head|vp|vice president|svp|evp|chief)\b/;
 function dmTitlesFor(tier) {
-  if (tier === "enterprise") return T_ENTERPRISE;
-  if (tier === "mid") return [...T_GROWTH, ...T_REV];
-  return [...T_CEO, ...T_REV, ...T_GROWTH];
+  const list = tier === "enterprise" ? [...T_ENTERPRISE]
+    : tier === "mid" ? [...T_GROWTH, ...T_REV]
+    : [...T_CEO, ...T_REV, ...T_GROWTH];
+  list.broad = tier !== "small";
+  return list;
 }
 function titleWanted(title, include) {
   const t = String(title || "").toLowerCase();
   if (!t) return false;
   if (DM_EXCLUDE.some((x) => t.includes(x))) return false;
-  return include.some((x) => t.includes(x.toLowerCase()));
+  if (include.some((x) => t.includes(x.toLowerCase()))) return true;
+  return !!include.broad && SENIOR_RE.test(t) && BROAD_AREAS.some((a) => t.includes(a));
 }
 
 // ---- dedupe state ----
