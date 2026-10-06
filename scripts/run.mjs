@@ -59,7 +59,7 @@ const SMALL_SIZES = new Set(["1-10", "11-50", "51-200"]);
 const MID_SIZES = new Set(["201-500", "501-1000"]);
 const ENTERPRISE_SIZES = new Set(["1001-5000", "5001-10000", "10001+"]);
 
-const RECENT_DAYS = Number(process.env.RECENT_DAYS || 7);
+let RECENT_DAYS = Number(process.env.RECENT_DAYS || 7);
 const MAX_ISSUES = Number(process.env.MAX_ISSUES || 40);
 const MAX_PAGES = Number(process.env.MAX_PAGES || 20);
 const MAX_DMS = 3;
@@ -70,6 +70,20 @@ const SEARCH_SPACING_MS = 500;
 const SEEN_PATH = new URL("../state/seen.json", import.meta.url);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const tfetch = (url, init = {}, ms = TIMEOUT_MS) => fetch(url, { ...init, signal: AbortSignal.timeout(ms) });
+// Timeouts, 429s and 5xx are retried with backoff; any other status is returned to the caller.
+// A timeout that survives every attempt throws, so callers decide whether it is fatal.
+async function rfetch(url, init, ms, attempts = 3) {
+  for (let a = 1; ; a++) {
+    try {
+      const r = await tfetch(url, init, ms);
+      if ((r.status === 429 || r.status >= 500) && a < attempts) { await sleep(3000 * a); continue; }
+      return r;
+    } catch (e) {
+      if (a >= attempts) throw e;
+      await sleep(3000 * a);
+    }
+  }
+}
 
 let nextSlot = 0;
 async function pace() {
@@ -243,11 +257,17 @@ function normalizePerson(p) {
 async function getleadsContacts(key, domain, include) {
   if (!key || !domain) return [];
   await pace();
-  const r = await tfetch(GETLEADS_COLLEAGUES, {
+  // A GetLeads timeout on one domain killed the whole run on 2026-10-05 before any issue was
+  // filed. Now it costs that company its GetLeads contacts only; Prospeo still gets a try.
+  const r = await rfetch(GETLEADS_COLLEAGUES, {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "User-Agent": BROWSER_UA },
     body: JSON.stringify({ email_domain: domain, limit_per_item: 50 }),
-  }, 40000);
+  }, 60000, 2).catch((e) => {
+    console.warn(`::warning::GetLeads ${e.name || "error"} on ${domain}, falling through to Prospeo`);
+    return null;
+  });
+  if (!r) return [];
   if (r.status === 402) {
     console.warn(`::warning::GetLeads fair-use limit on ${domain} — falling through to Prospeo`);
     return [];
@@ -302,7 +322,7 @@ async function prospeoContacts(key, domain, include) {
   const out = [];
   for (let page = 1; page <= 3 && out.length < MAX_DMS; page++) {
     await pace();
-    const r = await tfetch(PROSPEO_PERSON, {
+    const r = await rfetch(PROSPEO_PERSON, {
       method: "POST",
       headers: { "X-KEY": key, "Content-Type": "application/json", "User-Agent": BROWSER_UA },
       body: JSON.stringify({
@@ -312,7 +332,11 @@ async function prospeoContacts(key, domain, include) {
           person_seniority: { include: ["C-Suite", "Founder/Owner", "Vice President", "Head", "Director"] },
         },
       }),
-    }, 40000);
+    }, 40000, 2).catch((e) => {
+      console.warn(`::warning::Prospeo ${e.name || "error"} on ${domain}`);
+      return null;
+    });
+    if (!r) break;
     const j = await r.json().catch(() => ({}));
     if (!r.ok || j.error) {
       if (j.error_code !== "NO_RESULTS") console.warn(`::warning::Prospeo ${r.status} ${j.error_code || ""} on ${domain}`);
@@ -387,7 +411,8 @@ async function searchBlitzJobs(key) {
       max_results: 50,
     };
     if (cursor) body.cursor = cursor;
-    const r = await tfetch(BLITZ_JOBS_SEARCH, { method: "POST", headers: blitzHeaders(key), body: JSON.stringify(body) });
+    const r = await rfetch(BLITZ_JOBS_SEARCH, { method: "POST", headers: blitzHeaders(key), body: JSON.stringify(body) }, 45000)
+      .catch((e) => ({ ok: false, status: e.name === "TimeoutError" ? "timeout" : "network" }));
     pages++;
     if (!r.ok) {
       status = "error";
@@ -456,9 +481,24 @@ async function main() {
   const seen = await loadSeen();
   const today = new Date().toISOString().slice(0, 10);
 
-  if (process.env.GITHUB_EVENT_NAME === "schedule" && seen.lastOkRun === today) {
-    console.log(`skipped: a scheduled run already fetched successfully today (${today}) — 0 API requests made`);
-    return;
+  // Monday has a primary and a backup cron, Tue-Fri a catch-up cron each. All of them stand
+  // down once this week (Monday UTC onward) has a successful fetch, so a good Monday costs
+  // 0 API requests for the rest of the week and a failed one is retried the next day.
+  if (process.env.GITHUB_EVENT_NAME === "schedule") {
+    const d = new Date();
+    const monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - ((d.getUTCDay() + 6) % 7)))
+      .toISOString().slice(0, 10);
+    if (seen.lastOkRun && seen.lastOkRun >= monday) {
+      console.log(`skipped: this week already fetched successfully (lastOkRun=${seen.lastOkRun}) — 0 API requests made`);
+      return;
+    }
+    // Missed weeks: widen the lookback to reach back to the last good fetch (capped at 21 days).
+    // Already-filed jobs and companies are skipped via seen.json, so the overlap is harmless.
+    const since = seen.lastOkRun ? Math.ceil((Date.now() - Date.parse(seen.lastOkRun)) / 86400_000) + 1 : 0;
+    if (since > RECENT_DAYS) {
+      RECENT_DAYS = Math.min(21, since);
+      console.log(`catch-up: last good fetch ${seen.lastOkRun}, looking back ${RECENT_DAYS} days`);
+    }
   }
 
   const cutoff = Date.now() - RECENT_DAYS * 86400_000;
@@ -502,7 +542,7 @@ async function main() {
   if (items.length > MAX_ISSUES) { capped = items.length - MAX_ISSUES; items.length = MAX_ISSUES; }
 
   const useAimfox = !!(secrets.AIMFOX_API_KEY && secrets.AIMFOX_CAMPAIGN_ID);
-  await mapPool(items, DM_CONCURRENCY, async (it) => {
+  await mapPool(items, DM_CONCURRENCY, async (it) => { try {
     const extra = await companyEnrich(secrets.BLITZ_API_KEY, it.companyUrl);
     if (!extra.domain) {
       const pc = await prospeoCompany(secrets.PROSPEO_API_KEY, it.companyName, it.companyUrl);
@@ -514,7 +554,7 @@ async function main() {
     it.domain = extra.domain;
     it.dms = await findDecisionMakers(secrets, it.domain, it.tier);
     it.aimfoxQueued = useAimfox && it.dms.length > 0;
-  });
+  } catch (e) { console.warn(`::warning::contact lookup failed for ${it.companyName}: ${e.message || e}`); } });
 
   let issuesCreated = 0;
   const issueErrors = [];
