@@ -5,6 +5,8 @@ on:
     - cron: "0 6 * * 1"    # Mondays 06:00 UTC (primary)
     - cron: "0 14 * * 1"   # Mondays 14:00 UTC (backup — catches up if the 06:00 run couldn't get a runner
                            #  or was rate-limited; stands down for 0 API requests if 06:00 already fetched)
+    - cron: "0 14 * * 2-5" # Tue-Fri 14:00 UTC (catch-up — only does work if no run has succeeded since
+                           #  Monday, e.g. a Blitz 402 or GetLeads outage; widens the lookback to cover the gap)
   workflow_dispatch:
     inputs:
       dry_run:
@@ -27,7 +29,7 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 50   # contact lookups retry on timeouts; a slow GetLeads day must not hit the wall
     steps:
       - uses: actions/checkout@v4
 
