@@ -36,6 +36,21 @@ const ROLE_FAMILIES = [
 ];
 const titleFamily = (t) => ROLE_FAMILIES.find((f) => f.re.test(t ?? ""))?.label ?? "";
 
+// ~110 jobs match a normal week and MAX_ISSUES files 40, so the order decides which 40.
+// Strongest buying signal first: a GTM Engineer req beats a GTM Ops req beats growth roles.
+// "Growth" titles that are product engineering or creative/marketing work rank last.
+const FAMILY_RANK = { "GTM Engineer": 0, "GTM Operations": 1, "Growth Engineer": 2, "Growth Lead": 3 };
+const WEAK_GROWTH_RE = /\b(software|full[-\s]*stack|front[-\s]*end|back[-\s]*end|mobile|ios|android|reliability|data scientist|creative|designer|marketer|content|brand|seo|social media|performance marketing)\b/i;
+function jobRank(title) {
+  const fam = titleFamily(title);
+  const r = FAMILY_RANK[fam] ?? 9;
+  return r >= 2 && WEAK_GROWTH_RE.test(title || "") ? 4 : r;
+}
+// Not buyers: recruiters and staffing firms posting for someone else, schools and coaches,
+// and roles too junior or commission-only to signal a GTM build-out.
+const NOISE_COMPANY_RE = /recruit|staffing|\btalent\b|headhunt|coaching|\bschool\b|\btutor/i;
+const NOISE_TITLE_RE = /\bintern(ship)?\b|ambassador|performance[-\s]*based|equity[-\s]*(only|split)/i;
+
 const EU_COUNTRIES = new Set([
   "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT",
   "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE",
@@ -107,6 +122,8 @@ function canonCompanyUrl(u) {
   return m ? m[1] : "";
 }
 const companyKeyOf = (cu, name) => (cu || name || "").toLowerCase().trim();
+// A company with no website comes back with its LinkedIn (or other profile) URL as the domain.
+const NOT_A_COMPANY_DOMAIN = /(^|\.)(linkedin\.com|lnkd\.in|facebook\.com|instagram\.com|x\.com|twitter\.com|linktr\.ee|wellfound\.com|angel\.co|crunchbase\.com)$/i;
 function bareDomain(u) {
   if (!u) return "";
   try {
@@ -235,12 +252,14 @@ async function companyEnrich(blitzKey, companyUrl) {
     else out.size = bandFromHeadcount(c.employees_on_linkedin);
     out.domain = bareDomain(c.domain || c.website || c.company_domain || "");
   } catch { /* continue */ }
+  if (NOT_A_COMPANY_DOMAIN.test(out.domain)) out.domain = "";
   if (!out.domain) {
     try {
       await pace();
       const r = await tfetch(BLITZ_LI_TO_DOMAIN, { method: "POST", headers: blitzHeaders(blitzKey), body: JSON.stringify({ company_linkedin_url: companyUrl }) }, 30000);
       const d = await r.json();
       out.domain = bareDomain(d.domain || d.company_domain || "");
+      if (NOT_A_COMPANY_DOMAIN.test(out.domain)) out.domain = "";
     } catch { /* leave empty */ }
   }
   return out;
@@ -504,13 +523,14 @@ async function main() {
   const cutoff = Date.now() - RECENT_DAYS * 86400_000;
   const search = await searchBlitzJobs(secrets.BLITZ_API_KEY);
 
-  let fetched = 0;
+  let fetched = 0, noise = 0;
   const fresh = new Map();
   for (const j of search.jobs) {
     fetched++;
     const jid = jobIdFrom(j);
     if (!jid || fresh.has(jid)) continue;
     if (!titleFamily(j.title)) continue;
+    if (NOISE_TITLE_RE.test(j.title || "") || NOISE_COMPANY_RE.test(j.company_name || j.company?.name || "")) { noise++; continue; }
     if (postedTs(j.date_posted) && postedTs(j.date_posted) < cutoff) continue;
     const region = regionFromJob(j);
     if (!region) continue;
@@ -519,8 +539,11 @@ async function main() {
     fresh.set(jid, j);
   }
 
+  // Rank before the per-company dedupe, so a company with two posts is filed under its best one.
+  const ranked = [...fresh].sort(([, a], [, b]) =>
+    jobRank(a.title) - jobRank(b.title) || postedTs(b.date_posted) - postedTs(a.date_posted));
   const items = [];
-  for (const [jid, j] of fresh) {
+  for (const [jid, j] of ranked) {
     if (seen.jobIds.has(jid)) continue;
     const cu = canonCompanyUrl(j.company_linkedin_url || j.company?.linkedin_url || j.company?.url);
     const ckey = companyKeyOf(cu, j.company_name || j.company?.name);
@@ -584,7 +607,7 @@ async function main() {
   await saveSeen(seen);
 
   const summary = [
-    `fetched=${fetched} matched=${matched} new=${items.length} issues=${issuesCreated}` + (capped ? ` capped=${capped}` : ""),
+    `fetched=${fetched} matched=${matched} new=${items.length} issues=${issuesCreated}` + (capped ? ` capped=${capped}` : "") + ` noise_skipped=${noise}`,
     `requests=${search.pages} (blitz /v2/jobs/search)`,
     `searches ${search.status}` + (search.lastError ? ` error=${search.lastError}` : ""),
     `contacts: getleads then prospeo`,
