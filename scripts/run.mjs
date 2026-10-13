@@ -1,5 +1,5 @@
 // GTM Jobs Feed — GitHub-native runtime.
-// Finds GTM Engineer / Go-To-Market Engineer / GTM Operations / Growth Engineer / Growth Lead roles
+// Finds GTM Engineer / Go-To-Market Engineer / GTM Operations / GTM Strategy roles (exact titles only)
 // (US, EU, AU) at companies of ANY size, opens ONE GitHub issue per new job post with its points
 // of contact, and pushes those points of contact to an Aimfox campaign.
 // Runs weekly on GitHub Actions (see .github/workflows/daily.yml). Node 20+, zero dependencies.
@@ -25,27 +25,22 @@ const BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/
 
 const HIRING_TITLES = [
   "GTM Engineer", "Go To Market Engineer", "Go-to-Market Engineer", "Go-To-Market Engineer",
-  "GTM Operations", "Growth Engineer", "Growth Lead",
+  "GTM Operations", "Go-to-Market Operations", "GTM Strategy", "Go-to-Market Strategy",
 ];
 
+// Only these exact phrases count. Blitz matches titles loosely, so every result is re-checked
+// here: "GTM Systems Engineer", "GTM Engineering Lead" and all Growth titles are dropped.
 const ROLE_FAMILIES = [
-  { label: "GTM Engineer", re: /(gtm|go[-\s]*to[-\s]*market)[-\s]*(systems?[-\s]*|solutions?[-\s]*)?engineer/i },
-  { label: "GTM Operations", re: /(gtm|go[-\s]*to[-\s]*market)[-\s]*(ops\b|operations)/i },
-  { label: "Growth Engineer", re: /(growth[-\s]*(systems?[-\s]*|software[-\s]*|product[-\s]*)?engineer|\bengineer[,\s-]+growth\b)/i },
-  { label: "Growth Lead", re: /(growth[-\s]*(team[-\s]*)?lead\b|\blead[,\s-]+growth\b)/i },
+  { label: "GTM Engineer", re: /\b(gtm|go[-\s]*to[-\s]*market)([-\s]*\(gtm\))?[-\s]+engineers?\b/i },
+  { label: "GTM Operations", re: /\b(gtm|go[-\s]*to[-\s]*market)([-\s]*\(gtm\))?[-\s]+operations\b/i },
+  { label: "GTM Strategy", re: /\b(gtm|go[-\s]*to[-\s]*market)([-\s]*\(gtm\))?[-\s]+strategy\b/i },
 ];
 const titleFamily = (t) => ROLE_FAMILIES.find((f) => f.re.test(t ?? ""))?.label ?? "";
 
-// ~110 jobs match a normal week and MAX_ISSUES files 40, so the order decides which 40.
-// Strongest buying signal first: a GTM Engineer req beats a GTM Ops req beats growth roles.
-// "Growth" titles that are product engineering or creative/marketing work rank last.
-const FAMILY_RANK = { "GTM Engineer": 0, "GTM Operations": 1, "Growth Engineer": 2, "Growth Lead": 3 };
-const WEAK_GROWTH_RE = /\b(software|full[-\s]*stack|front[-\s]*end|back[-\s]*end|mobile|ios|android|reliability|data scientist|creative|designer|marketer|content|brand|seo|social media|performance marketing)\b/i;
-function jobRank(title) {
-  const fam = titleFamily(title);
-  const r = FAMILY_RANK[fam] ?? 9;
-  return r >= 2 && WEAK_GROWTH_RE.test(title || "") ? 4 : r;
-}
+// MAX_ISSUES caps a week, so the order decides which jobs get filed: GTM Engineer, then Ops, then Strategy.
+const FAMILY_RANK = { "GTM Engineer": 0, "GTM Operations": 1, "GTM Strategy": 2 };
+const jobRank = (title) => FAMILY_RANK[titleFamily(title)] ?? 9;
+
 // Not buyers: recruiters and staffing firms posting for someone else, schools and coaches,
 // and roles too junior or commission-only to signal a GTM build-out.
 const NOISE_COMPANY_RE = /recruit|staffing|\btalent\b|headhunt|coaching|\bschool\b|\btutor/i;

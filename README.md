@@ -1,7 +1,7 @@
 # GTM Jobs Feed
 
 **A free, public, continuously updated list of open GTM Engineer (Go-To-Market
-Engineer), GTM Operations, Growth Engineer and Growth Lead jobs across the US,
+Engineer), GTM Operations and GTM Strategy jobs across the US,
 Europe and Australia.** Every role that appears becomes one GitHub issue in this
 repo, so the
 [issue list](https://github.com/mariellecamba-gtm/gtm-jobs-feed/issues) *is* the
@@ -14,14 +14,14 @@ of this page. GitHub then emails you every time a new job is filed. That is the
 whole subscription mechanism, and it is free.
 
 Roles are labelled by region (`region:US`, `region:EU`, `region:Australia`), by role type
-(`role:GTM Engineer`, `role:GTM Operations`, `role:Growth Engineer`,
-`role:Growth Lead`) and by company size — both the original coarse bands
+(`role:GTM Engineer`, `role:GTM Operations`, `role:GTM Strategy`) and by company
+size — both the original coarse bands
 (`size:1-200`, `size:201+`) and the exact one (`size:11-50`, `size:1001-5000`,
-…) — so you can filter to what you actually want. So far that is 160 US roles,
-86 in Europe and 9 in Australia.
+…) — so you can filter to what you actually want. So far that is 258 US roles,
+144 in Europe and 10 in Australia.
 
 **Company size is not a filter.** A two-person startup and a 10,001+ employee
-enterprise both get filed, as long as the posting is one of the four role
+enterprise both get filed, as long as the posting is one of the three role
 types. Size only changes who the feed looks for as a point of contact.
 
 ## What is a GTM Engineer?
@@ -30,21 +30,19 @@ A GTM engineer builds and runs the technical systems a go-to-market team sells
 with: outbound infrastructure, data enrichment and waterfalls, lead scoring,
 CRM plumbing, deliverability, and the automations that connect them. The title
 is new and unsettled, so postings also show up as **Go-To-Market Engineer**,
-**Founding GTM Engineer**, **GTM Systems Engineer**, **Growth Engineer** and
-**RevOps Engineer**.
+**Founding GTM Engineer** and **Senior GTM Engineer**.
 
-This feed tracks four title families, because the same job is advertised under
-all of them:
+This feed only files a posting whose title contains one of these exact phrases:
 
-| Family | Matches titles like |
-| --- | --- |
-| `GTM Engineer` | GTM Engineer, Go-To-Market Engineer, Founding GTM Engineer, GTM Systems Engineer |
-| `GTM Operations` | GTM Operations Manager, Go-to-Market Operations Lead, GTM Ops Associate |
-| `Growth Engineer` | Growth Engineer, Senior Growth Software Engineer, Software Engineer — Growth |
-| `Growth Lead` | Growth Lead, Growth Team Lead, "Lead, Growth" |
+| Family | Title must contain | Example titles |
+| --- | --- | --- |
+| `GTM Engineer` | "GTM Engineer" or "Go-to-Market Engineer" | GTM Engineer, Founding GTM Engineer, Senior Go-To-Market Engineer |
+| `GTM Operations` | "GTM Operations" or "Go-to-Market Operations" | GTM Operations Manager, Head of GTM Operations |
+| `GTM Strategy` | "GTM Strategy" or "Go-to-Market Strategy" | GTM Strategy & Operations, Director, GTM Strategy |
 
-Growth *marketing* titles (Growth Marketing Manager, Growth Marketer, Head of
-Growth) are deliberately not matched — they are a different job.
+Everything else is left out, even when it is close: Growth Engineer, Growth
+Lead, GTM Systems Engineer, GTM Engineering Lead and GTM AI Engineer are not
+filed.
 
 It sits between sales, marketing and engineering, and it is one of the
 fastest-growing job titles in B2B SaaS, which is why a dedicated feed for it is
@@ -67,11 +65,11 @@ for whether a role is still open, and sort by newest to see this week's.
 Every **Monday at 06:00 UTC** ([`.github/workflows/daily.yml`](.github/workflows/daily.yml)) GitHub Actions runs
 [`scripts/run.mjs`](scripts/run.mjs) (with a 14:00 UTC backup if the morning run never fetched), which:
 
-1. Searches Blitz `/v2/jobs/search` for the five title strings (GTM Engineer, Go To Market
-   Engineer, GTM Operations, Growth Engineer, Growth Lead) posted in the lookback window,
+1. Searches Blitz `/v2/jobs/search` for the GTM title strings (GTM Engineer, Go To Market
+   Engineer, GTM Operations, GTM Strategy) posted in the lookback window,
    then keeps US / EU / Australia. Blitz also supplies the LinkedIn posting URL and
    company page. GetLeads and Prospeo cannot do this — they search people, not open jobs.
-2. Keeps only titles matching one of the four role families above, posted in the last 7 days
+2. Keeps only titles matching one of the three role families above, posted in the last 7 days
    (or the `recent_days` you pass on a manual run).
 3. Drops anything already filed — dedupes by **job id** and by **company** (one issue per company, ever)
    using [`state/seen.json`](state/seen.json), which the workflow commits back after each run.
@@ -166,15 +164,15 @@ be live.
 
 ### Which job titles does it cover?
 
-GTM Engineer, GTM Operations, Growth Engineer and Growth Lead, plus the common
-variants of each (see the table above). Every issue carries a `role:*` label so
+GTM Engineer (including Go-to-Market Engineer), GTM Operations and GTM
+Strategy, and nothing else (see the table above). Every issue carries a `role:*` label so
 you can filter to one family.
 
 ### Does it only cover startups?
 
 No. Every company size is in scope — the feed files a role from a five-person
 seed startup and from a 10,001-person enterprise alike, as long as the title is
-one of the four families. The `size:*` labels let you filter if you care.
+one of the three families. The `size:*` labels let you filter if you care.
 
 ### Can I submit a role?
 
