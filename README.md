@@ -80,8 +80,16 @@ Every **Monday at 06:00 UTC** ([`.github/workflows/daily.yml`](.github/workflows
    Director/VP layer that owns GTM systems (Growth, RevOps, Sales Ops, Demand Gen).
 5. **Opens a GitHub issue** for the job post with the points of contact listed (labels: `gtm-job`,
    `region:*`, `size:*`, `role:*`).
-6. **Pushes those points of contact to Aimfox** (campaign `GTM Engineer Hiring — Decision Makers`),
-   which sends LinkedIn connection requests from the `mariellecamba` account.
+6. **Writes the message variables** for each company with 500 or fewer employees
+   ([`scripts/lib/personalize.mjs`](scripts/lib/personalize.mjs)): the job post and company description go to
+   OpenAI (`OPENAI_MODEL`, default `gpt-5-nano`), which returns `hiring_for`, `target_buyer` and three ideas.
+   A copy gate renders the real Aimfox messages with them (banned words, word cap, articles, ideas grounded
+   in the post) and asks for up to two rewrites. Companies that fail, are bigger, or whose post is already
+   closed are **held**: not pushed, and listed in the run summary. A blank variable would make Aimfox skip
+   the message, so nothing is ever pushed half-filled.
+7. **Pushes those points of contact to Aimfox** with their variables (`FIRST_NAME`, `COMPANY_NAME`,
+   `HIRING_FOR`, `TARGET_BUYER`, `IDEA_1`..`IDEA_3`, `ROLE_SHORT`), which sends LinkedIn connection requests
+   from the `mariellecamba` account.
 
 A safety cap (`MAX_ISSUES`, default 40) limits how many issues a single run can open.
 Blitz job search is free/unlimited on our plan; `MAX_PAGES` (default 20) is the pagination
@@ -101,6 +109,7 @@ You will need your own keys for the services below.
 | `PROSPEO_API_KEY` | Prospeo key for `/search-person` when GetLeads returns fewer than 3 people |
 | `AIMFOX_API_KEY` | Aimfox API key (push is skipped if unset) |
 | `AIMFOX_CAMPAIGN_ID` | Target Aimfox campaign id |
+| `OPENAI_API_KEY` | Writes the Aimfox message variables (without it nothing is pushed) |
 
 > All credentials live **only** in Actions secrets — never in the repo. `scripts/run.mjs` reads them
 > from `process.env`; the workflow injects them via `${{ secrets.* }}`. Nothing sensitive is committed.

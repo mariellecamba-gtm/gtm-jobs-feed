@@ -44,6 +44,8 @@ jobs:
           PROSPEO_API_KEY: ${{ secrets.PROSPEO_API_KEY }}
           AIMFOX_API_KEY: ${{ secrets.AIMFOX_API_KEY }}
           AIMFOX_CAMPAIGN_ID: ${{ secrets.AIMFOX_CAMPAIGN_ID }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}       # writes the Aimfox message variables
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5-nano' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
           RECENT_DAYS: ${{ github.event.inputs.recent_days || '7' }}
