@@ -19,7 +19,7 @@
 // Optional: RECENT_DAYS (default 7), MAX_ISSUES (default 40), MAX_PAGES (default 20), DRY_RUN=1.
 
 import { readFile, writeFile } from "node:fs/promises";
-import { PERSONALIZE_SIZES, writeVariables, firstNameOf, linkedinJobDescription } from "./lib/personalize.mjs";
+import { PERSONALIZE_SIZES, writeVariables, firstNameOf, linkedinJobDescription, companyHoldReason } from "./lib/personalize.mjs";
 
 const BLITZ = "https://api.blitz-api.ai";
 const BLITZ_JOBS_SEARCH = `${BLITZ}/v2/jobs/search`;
@@ -603,6 +603,8 @@ async function main() {
   for (const it of items) {
     if (!useAimfox || !it.dms.length) continue;
     if (!PERSONALIZE_SIZES.has(it.size)) { it.heldReason = `size ${it.size || "unknown"}`; continue; }
+    const hold = companyHoldReason(it);
+    if (hold) { it.heldReason = hold; continue; }
     if (!secrets.OPENAI_API_KEY) { it.heldReason = "no OPENAI_API_KEY"; continue; }
     toWrite.push(it);
   }

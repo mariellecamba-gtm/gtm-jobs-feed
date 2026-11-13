@@ -14,6 +14,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Who gets the fractional pitch: companies with 500 or fewer employees (Marielle, 2026-11-13).
 export const PERSONALIZE_SIZES = new Set(["1-10", "11-50", "51-200", "201-500"]);
 
+// Deterministic holds the model missed in the 2026-11-13 dry run (it kept FireMon and lemlist): security
+// buyers are out, and so are companies selling outbound / lead gen themselves (Marielle's competitors).
+const SECURITY_RE = /\b(cyber ?security|infosec|information security|network security|firewall|threat (detection|intelligence)|siem|zero trust|penetration testing)\b/i;
+const COMPETITOR_RE = /\b(cold e-?mails?|email outreach|lead generation|lead gen agency|sales engagement|outbound (agency|platform|as a service)|ai sdrs?|sdr agents?|appointment setting|demand generation agency)\b/i;
+export function companyHoldReason({ industry = "", specialties = "", about = "" } = {}) {
+  if (/security/i.test(industry) || SECURITY_RE.test(specialties)) return "security buyers";
+  if (COMPETITOR_RE.test(specialties) || COMPETITOR_RE.test(String(about).slice(0, 600))) return "sells outbound or lead gen (competitor)";
+  return "";
+}
+
 // The live Aimfox messages, rendered by the gate. Keep in sync with the dashboard copy.
 const MESSAGES = [
   `{{FIRST_NAME}}, saw {{COMPANY_NAME}} is hiring {{HIRING_FOR}}.
