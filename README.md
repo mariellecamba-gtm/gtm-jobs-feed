@@ -22,7 +22,7 @@ size — both the original coarse bands
 
 **Company size is not a filter.** A two-person startup and a 10,001+ employee
 enterprise both get filed, as long as the posting is one of the three role
-types. Size only changes who the feed looks for as a point of contact.
+types. Size only changes which points of contact are listed.
 
 ## What is a GTM Engineer?
 
@@ -62,56 +62,13 @@ for whether a role is still open, and sort by newest to see this week's.
 
 ## How it works
 
-Every **Monday at 06:00 UTC** ([`.github/workflows/daily.yml`](.github/workflows/daily.yml)) GitHub Actions runs
-[`scripts/run.mjs`](scripts/run.mjs) (with a 14:00 UTC backup if the morning run never fetched), which:
-
-1. Searches Blitz `/v2/jobs/search` for the GTM title strings (GTM Engineer, Go To Market
-   Engineer, GTM Operations, GTM Strategy) posted in the lookback window,
-   then keeps US / EU / Australia. Blitz also supplies the LinkedIn posting URL and
-   company page. GetLeads and Prospeo cannot do this — they search people, not open jobs.
-2. Keeps only titles matching one of the three role families above, posted in the last 7 days
-   (or the `recent_days` you pass on a manual run).
-3. Drops anything already filed — dedupes by **job id** and by **company** (one issue per company, ever)
-   using [`state/seen.json`](state/seen.json), which the workflow commits back after each run.
-4. For each new company — **any size**, from 1 employee to 10,001+ — finds up to **3 points of
-   contact**. GetLeads colleagues-by-domain runs first; Prospeo `/search-person` fills any
-   remaining slots. The title cascade is chosen by headcount: ≤200 includes CEO/Founder +
-   Revenue + Growth; 201–1000 skips the CEO for Growth/GTM + Revenue; 1001+ goes after the
-   Director/VP layer that owns GTM systems (Growth, RevOps, Sales Ops, Demand Gen).
-5. **Opens a GitHub issue** for the job post with the points of contact listed (labels: `gtm-job`,
-   `region:*`, `size:*`, `role:*`).
-
-A safety cap (`MAX_ISSUES`, default 40) limits how many issues a single run can open.
-Blitz job search is free/unlimited on our plan; `MAX_PAGES` (default 20) is the pagination
-ceiling. New Zealand was dropped in August 2026.
-
-## Running your own copy
-
-Fork it, point it at your own titles and regions, and it files its own issues.
-You will need your own keys for the services below.
-
-**Actions secrets** (Settings → Secrets and variables → Actions):
-
-| Secret | Purpose |
-| --- | --- |
-| `BLITZ_API_KEY` | Blitz key for `/v2/jobs/search` + company-size / domain enrichment |
-| `GETLEADS_API_KEY` | GetLeads key for colleagues-by-domain (primary contact source) |
-| `PROSPEO_API_KEY` | Prospeo key for `/search-person` when GetLeads returns fewer than 3 people |
-
-> All credentials live **only** in Actions secrets — never in the repo. `scripts/run.mjs` reads them
-> from `process.env`; the workflow injects them via `${{ secrets.* }}`. Nothing sensitive is committed.
-
-`GITHUB_TOKEN` is provided automatically by Actions and is what opens the issues / commits state.
-
-## Run it manually
-
-Actions tab → **GTM Jobs Feed** → **Run workflow** (toggle **Dry run** to preview without writing).
-
-Locally:
-
-```bash
-BLITZ_API_KEY=... GETLEADS_API_KEY=... PROSPEO_API_KEY=... DRY_RUN=1 node scripts/run.mjs
-```
+Every **Monday at 06:00 UTC** an automated job searches for postings with one of
+the three title families above, posted in the last seven days, in the US, Europe
+and Australia. It drops recruiters and anything already filed (one issue per
+company, ever) and opens one issue per new posting with the company, role,
+location, posting date, a link to the original post, the company size band and up
+to three points of contact. If a Monday run fails, it retries later that week and
+looks back far enough to cover the gap.
 
 ---
 
