@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Dry run (no issues, no Aimfox, no state commit)"
+        description: "Dry run (no issues, no state commit)"
         type: boolean
         default: false
       recent_days:
@@ -42,10 +42,6 @@ jobs:
           BLITZ_API_KEY: ${{ secrets.BLITZ_API_KEY }}
           GETLEADS_API_KEY: ${{ secrets.GETLEADS_API_KEY }}
           PROSPEO_API_KEY: ${{ secrets.PROSPEO_API_KEY }}
-          AIMFOX_API_KEY: ${{ secrets.AIMFOX_API_KEY }}
-          AIMFOX_CAMPAIGN_ID: ${{ secrets.AIMFOX_CAMPAIGN_ID }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}       # writes the Aimfox message variables
-          OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5-nano' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
           RECENT_DAYS: ${{ github.event.inputs.recent_days || '7' }}

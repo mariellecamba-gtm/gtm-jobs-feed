@@ -1,25 +1,18 @@
 // GTM Jobs Feed — GitHub-native runtime.
 // Finds GTM Engineer / Go-To-Market Engineer / GTM Operations / GTM Strategy roles (exact titles only)
-// (US, EU, AU) at companies of ANY size, opens ONE GitHub issue per new job post with its points
-// of contact, and pushes those points of contact to an Aimfox campaign.
-// Runs weekly on GitHub Actions (see .github/workflows/daily.yml). Node 20+, zero dependencies.
+// (US, EU, AU) at companies of ANY size and opens ONE GitHub issue per new job post with its points
+// of contact. Runs weekly on GitHub Actions (see .github/workflows/daily.yml). Node 20+, zero dependencies.
 //
 // Job search: Blitz POST /v2/jobs/search (free/unlimited on our plan).
 // Contacts: GetLeads colleagues-by-domain first, Prospeo /search-person if that misses.
 // Blitz company enrich is only used for size + domain so the contact cascade has something
 // to query — it does not find people.
 //
-// Before the Aimfox push, scripts/lib/personalize.mjs writes each company's message variables
-// (hiring_for, target_buyer, 3 ideas...) with OpenAI and gates them. Only companies with 500 or
-// fewer employees whose variables pass are pushed; the rest are held and listed in the summary.
-//
 // Env: BLITZ_API_KEY (required); GETLEADS_API_KEY, PROSPEO_API_KEY (contacts — at least one);
-// AIMFOX_API_KEY, AIMFOX_CAMPAIGN_ID (optional); OPENAI_API_KEY (+ OPENAI_MODEL, default
-// gpt-5-nano) — without it nothing is pushed; GITHUB_TOKEN + GITHUB_REPOSITORY (Actions).
+// GITHUB_TOKEN + GITHUB_REPOSITORY (Actions).
 // Optional: RECENT_DAYS (default 7), MAX_ISSUES (default 40), MAX_PAGES (default 20), DRY_RUN=1.
 
 import { readFile, writeFile } from "node:fs/promises";
-import { PERSONALIZE_SIZES, writeVariables, firstNameOf, linkedinJobDescription, companyHoldReason } from "./lib/personalize.mjs";
 
 const BLITZ = "https://api.blitz-api.ai";
 const BLITZ_JOBS_SEARCH = `${BLITZ}/v2/jobs/search`;
@@ -80,7 +73,7 @@ const MAX_ISSUES = Number(process.env.MAX_ISSUES || 40);
 const MAX_PAGES = Number(process.env.MAX_PAGES || 20);
 const MAX_DMS = 3;
 const DRY_RUN = process.env.DRY_RUN === "1";
-const TIMEOUT_MS = 25000, DM_CONCURRENCY = 3, WRITE_CONCURRENCY = 6;
+const TIMEOUT_MS = 25000, DM_CONCURRENCY = 3;
 const SEARCH_SPACING_MS = 500;
 
 const SEEN_PATH = new URL("../state/seen.json", import.meta.url);
@@ -242,7 +235,7 @@ function sizeTier(band) {
 }
 
 async function companyEnrich(blitzKey, companyUrl) {
-  const out = { size: "", domain: "", about: "", industry: "", specialties: "" };
+  const out = { size: "", domain: "" };
   if (!blitzKey || !companyUrl) return out;
   try {
     await pace();
@@ -252,9 +245,6 @@ async function companyEnrich(blitzKey, companyUrl) {
     if (c.size && SIZE_BANDS.includes(c.size)) out.size = c.size;
     else out.size = bandFromHeadcount(c.employees_on_linkedin);
     out.domain = bareDomain(c.domain || c.website || c.company_domain || "");
-    out.about = String(c.about || c.description || "");
-    out.industry = String(c.industry || "");
-    out.specialties = Array.isArray(c.specialties) ? c.specialties.join(", ") : String(c.specialties || "");
   } catch { /* continue */ }
   if (NOT_A_COMPANY_DOMAIN.test(out.domain)) out.domain = "";
   if (!out.domain) {
@@ -395,38 +385,6 @@ async function findDecisionMakers(secrets, domain, tier) {
   return out;
 }
 
-// Every message variable goes up with the lead (Aimfox upper-cases the keys: {{CUSTOM.IDEA_1}}).
-// COMPANY is kept for older templates.
-function aimfoxVariables(p) {
-  const v = p.vars;
-  return {
-    company: p.company, first_name: p.first_name, company_name: v.company_name, role_short: v.role_short,
-    hiring_for: v.hiring_for, target_buyer: v.target_buyer, idea_1: v.idea_1, idea_2: v.idea_2, idea_3: v.idea_3,
-  };
-}
-
-async function pushToAimfox(aimfoxKey, campaignId, profiles) {
-  let added = 0, failed = 0;
-  const reasons = new Set();
-  const url = `https://api.aimfox.com/api/v2/campaigns/${campaignId}/audience/multiple`;
-  for (let i = 0; i < profiles.length; i += 10) {
-    const chunk = profiles.slice(i, i + 10);
-    const body = JSON.stringify({ type: "profile_url", profiles: chunk.map((p) => ({ profile_url: p.profile_url, custom_variables: aimfoxVariables(p) })) });
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const r = await tfetch(url, { method: "POST", headers: { Authorization: `Bearer ${aimfoxKey}`, "Content-Type": "application/json" }, body }, 90000);
-        if (!r.ok) { reasons.add(`http${r.status}`); await sleep(1500); continue; }
-        const d = await r.json().catch(() => ({}));
-        added += (d?.profiles?.length ?? 0);
-        failed += (d?.failed?.length ?? 0);
-        for (const v of Object.values(d?.failedReason ?? {})) reasons.add(String(v));
-        break;
-      } catch { reasons.add("timeout"); await sleep(1500); }
-    }
-  }
-  return { added, failed, note: `${added} added, ${failed} skipped` + (reasons.size ? ` (${[...reasons].slice(0, 4).join(",")})` : "") };
-}
-
 async function searchBlitzJobs(key) {
   const jobs = [];
   const seen = new Set();
@@ -487,11 +445,6 @@ function issueBody(it) {
   lines.push(`### Points of contact (${it.dms.length})`);
   if (it.dms.length) {
     for (const d of it.dms) lines.push(`- [${d.name}](${d.profile_url})${d.title ? ` — ${d.title}` : ""}`);
-    lines.push("");
-    lines.push(it.aimfoxQueued
-      ? `_Queued to Aimfox campaign for LinkedIn connection requests._`
-      : it.heldReason ? `_Not queued to Aimfox._`
-      : `_Aimfox push not configured — work these manually._`);
   } else {
     lines.push("_No points of contact found via GetLeads or Prospeo._");
   }
@@ -505,10 +458,6 @@ async function main() {
     BLITZ_API_KEY: process.env.BLITZ_API_KEY,
     GETLEADS_API_KEY: process.env.GETLEADS_API_KEY,
     PROSPEO_API_KEY: process.env.PROSPEO_API_KEY,
-    AIMFOX_API_KEY: process.env.AIMFOX_API_KEY,
-    AIMFOX_CAMPAIGN_ID: process.env.AIMFOX_CAMPAIGN_ID,
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-    OPENAI_MODEL: process.env.OPENAI_MODEL || "gpt-5-nano",
   };
   if (!secrets.BLITZ_API_KEY) throw new Error("BLITZ_API_KEY missing");
   if (!secrets.GETLEADS_API_KEY && !secrets.PROSPEO_API_KEY) throw new Error("GETLEADS_API_KEY or PROSPEO_API_KEY missing");
@@ -572,8 +521,7 @@ async function main() {
       title: j.title ?? "GTM Engineer", family: titleFamily(j.title),
       location: locationText(j), region: j._region,
       posted: postedTs(j.date_posted) ? new Date(postedTs(j.date_posted)).toISOString().slice(0, 10) : (j.date_posted || ""),
-      jobUrl: j.url || "", jobSummary: j.ai_summary || "", size: "", tier: "small", domain: "", dms: [],
-      about: "", industry: "", specialties: "", vars: null, heldReason: "", aimfoxQueued: false,
+      jobUrl: j.url || "", size: "", tier: "small", domain: "", dms: [],
     });
   }
   for (const it of items) seen.companies.delete(it.companyKey);
@@ -582,7 +530,6 @@ async function main() {
   let capped = 0;
   if (items.length > MAX_ISSUES) { capped = items.length - MAX_ISSUES; items.length = MAX_ISSUES; }
 
-  const useAimfox = !!(secrets.AIMFOX_API_KEY && secrets.AIMFOX_CAMPAIGN_ID);
   await mapPool(items, DM_CONCURRENCY, async (it) => { try {
     const extra = await companyEnrich(secrets.BLITZ_API_KEY, it.companyUrl);
     if (!extra.domain) {
@@ -593,45 +540,11 @@ async function main() {
     it.size = extra.size;
     it.tier = sizeTier(it.size);
     it.domain = extra.domain;
-    Object.assign(it, { about: extra.about || "", industry: extra.industry || "", specialties: extra.specialties || "" });
     it.dms = await findDecisionMakers(secrets, it.domain, it.tier);
   } catch (e) { console.warn(`::warning::contact lookup failed for ${it.companyName}: ${e.message || e}`); } });
 
-  // Message variables, written before anything is pushed. A lead with a blank variable would make
-  // Aimfox skip the message, so a company is only queued when its variables pass the copy gate.
-  const toWrite = [];
-  for (const it of items) {
-    if (!useAimfox || !it.dms.length) continue;
-    if (!PERSONALIZE_SIZES.has(it.size)) { it.heldReason = `size ${it.size || "unknown"}`; continue; }
-    const hold = companyHoldReason(it);
-    if (hold) { it.heldReason = hold; continue; }
-    if (!secrets.OPENAI_API_KEY) { it.heldReason = "no OPENAI_API_KEY"; continue; }
-    toWrite.push(it);
-  }
-  if (useAimfox && !secrets.OPENAI_API_KEY && items.some((it) => it.dms.length)) {
-    console.warn("::warning::OPENAI_API_KEY not set: no message variables, so nothing is pushed to Aimfox");
-  }
-  await mapPool(toWrite, WRITE_CONCURRENCY, async (it) => { try {
-    const jd = await linkedinJobDescription(it.jobId);
-    if (jd.closed) { it.heldReason = "job post closed"; return; }
-    const res = await writeVariables({
-      companyName: it.companyName, title: it.title, location: it.location, size: it.size,
-      industry: it.industry, about: it.about, specialties: it.specialties,
-      jobSummary: it.jobSummary, jobDescription: jd.desc,
-    }, { key: secrets.OPENAI_API_KEY, model: secrets.OPENAI_MODEL });
-    if (!res.ok) { it.heldReason = res.reason; return; }
-    it.vars = res.vars;
-    it.aimfoxQueued = it.dms.some((d) => firstNameOf(d.name));
-    if (!it.aimfoxQueued) it.heldReason = "no usable first name";
-  } catch (e) { it.heldReason = `writer error: ${String(e.message || e).slice(0, 120)}`; } });
-  if (DRY_RUN && !process.env.GITHUB_ACTIONS) {
-    for (const it of toWrite) console.log(`[dry-run] ${it.companyName}: ${it.vars ? JSON.stringify(it.vars) : `HELD (${it.heldReason})`}`);
-  }
-
   let issuesCreated = 0;
   const issueErrors = [];
-  const dmProfiles = [];
-  let heldPeople = 0;
   for (const it of items) {
     try {
       if (DRY_RUN) { console.log(`[dry-run] issue: ${it.companyName} — ${it.title} (${it.dms.length} DMs)`); }
@@ -639,39 +552,18 @@ async function main() {
       issuesCreated++;
       seen.jobIds.add(it.jobId);
       seen.companies.add(it.companyKey);
-      if (it.aimfoxQueued) {
-        for (const d of it.dms) {
-          const first_name = firstNameOf(d.name);
-          if (first_name) dmProfiles.push({ profile_url: d.profile_url, company: it.companyName, first_name, vars: it.vars });
-          else heldPeople++;
-        }
-      }
     } catch (e) { issueErrors.push(`${it.companyName}: ${e.message || e}`); }
-  }
-
-  let dmDiag = "aimfox: skipped";
-  if (useAimfox && dmProfiles.length && !DRY_RUN) {
-    const res = await pushToAimfox(secrets.AIMFOX_API_KEY, secrets.AIMFOX_CAMPAIGN_ID, dmProfiles);
-    dmDiag = `aimfox: ${dmProfiles.length} sent, ${res.note}`;
-  } else if (useAimfox && DRY_RUN) {
-    dmDiag = `aimfox: would push ${dmProfiles.length}`;
-  } else if (!useAimfox) {
-    dmDiag = `aimfox: not configured (${dmProfiles.length} DMs in issues only)`;
   }
 
   if (search.status === "ok" || search.status === "empty") seen.lastOkRun = today;
   await saveSeen(seen);
 
-  const held = items.filter((it) => it.dms.length && !it.aimfoxQueued && it.heldReason);
-  const personalized = items.filter((it) => it.aimfoxQueued).length;
   const summary = [
     `fetched=${fetched} matched=${matched} new=${items.length} issues=${issuesCreated}` + (capped ? ` capped=${capped}` : "") + ` noise_skipped=${noise}`,
     `requests=${search.pages} (blitz /v2/jobs/search)`,
     `searches ${search.status}` + (search.lastError ? ` error=${search.lastError}` : ""),
     `contacts: getleads then prospeo`,
-    dmDiag,
-    useAimfox ? `personalized: ${personalized} companies queued, ${held.length} held` + (heldPeople ? `, ${heldPeople} people held for no usable first name` : "") : "",
-    ...held.map((it) => `  held: ${it.companyName} (${it.heldReason})`),
+    `points of contact: ${items.filter((it) => it.dms.length).length} of ${items.length} companies, ${items.reduce((n, it) => n + it.dms.length, 0)} people`,
     issueErrors.length ? `issue errors: ${issueErrors.slice(0, 5).join(" | ")}` : "",
   ].filter(Boolean).join("\n");
   console.log(summary);

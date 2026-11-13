@@ -80,16 +80,6 @@ Every **Monday at 06:00 UTC** ([`.github/workflows/daily.yml`](.github/workflows
    Director/VP layer that owns GTM systems (Growth, RevOps, Sales Ops, Demand Gen).
 5. **Opens a GitHub issue** for the job post with the points of contact listed (labels: `gtm-job`,
    `region:*`, `size:*`, `role:*`).
-6. **Writes the message variables** for each company with 500 or fewer employees
-   ([`scripts/lib/personalize.mjs`](scripts/lib/personalize.mjs)): the job post and company description go to
-   OpenAI (`OPENAI_MODEL`, default `gpt-5-nano`), which returns `hiring_for`, `target_buyer` and three ideas.
-   A copy gate renders the real Aimfox messages with them (banned words, word cap, articles, ideas grounded
-   in the post) and asks for up to two rewrites. Companies that fail, are bigger, or whose post is already
-   closed are **held**: not pushed, and listed in the run summary. A blank variable would make Aimfox skip
-   the message, so nothing is ever pushed half-filled.
-7. **Pushes those points of contact to Aimfox** with their variables (`FIRST_NAME`, `COMPANY_NAME`,
-   `HIRING_FOR`, `TARGET_BUYER`, `IDEA_1`..`IDEA_3`, `ROLE_SHORT`), which sends LinkedIn connection requests
-   from the `mariellecamba` account.
 
 A safety cap (`MAX_ISSUES`, default 40) limits how many issues a single run can open.
 Blitz job search is free/unlimited on our plan; `MAX_PAGES` (default 20) is the pagination
@@ -107,17 +97,11 @@ You will need your own keys for the services below.
 | `BLITZ_API_KEY` | Blitz key for `/v2/jobs/search` + company-size / domain enrichment |
 | `GETLEADS_API_KEY` | GetLeads key for colleagues-by-domain (primary contact source) |
 | `PROSPEO_API_KEY` | Prospeo key for `/search-person` when GetLeads returns fewer than 3 people |
-| `AIMFOX_API_KEY` | Aimfox API key (push is skipped if unset) |
-| `AIMFOX_CAMPAIGN_ID` | Target Aimfox campaign id |
-| `OPENAI_API_KEY` | Writes the Aimfox message variables (without it nothing is pushed) |
 
 > All credentials live **only** in Actions secrets — never in the repo. `scripts/run.mjs` reads them
 > from `process.env`; the workflow injects them via `${{ secrets.* }}`. Nothing sensitive is committed.
 
 `GITHUB_TOKEN` is provided automatically by Actions and is what opens the issues / commits state.
-
-The dedupe state was seeded from the legacy Google Sheet (133 companies, 134 job ids) via
-[`scripts/seed-from-sheet.mjs`](scripts/seed-from-sheet.mjs) so nothing already processed gets re-filed.
 
 ## Run it manually
 
@@ -128,15 +112,6 @@ Locally:
 ```bash
 BLITZ_API_KEY=... GETLEADS_API_KEY=... PROSPEO_API_KEY=... DRY_RUN=1 node scripts/run.mjs
 ```
-
-## Migration notes
-
-- Replaces the old Supabase edge function `fetch-gtm-jobs` (archived in
-  [`legacy/`](legacy/supabase-edge-fetch-gtm-jobs.ts)) and its Google Sheet output.
-- **The old Supabase cron `fetch-gtm-jobs-daily` should be disabled** so it stops writing to the sheet
-  and double-running the Aimfox push.
-- The Aimfox campaign is INIT — set the connection note/sequence and activate it in the Aimfox
-  dashboard before invites send.
 
 ---
 
